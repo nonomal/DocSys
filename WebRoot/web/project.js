@@ -338,7 +338,7 @@ function copyUrl(node){
    	var href = "/DocSystem/web/project" + langExt + ".html?vid="+gReposInfo.id+"&doc="+docId+"&path="+path+"&name="+name;
 	if(gShareId)
 	{
-		href += "&shareId"+gShareId;
+		href += "&shareId="+gShareId;
 	}
 	console.log(href);
 	var protocol = window.location.protocol + '//';
