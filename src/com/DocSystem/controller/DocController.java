@@ -131,11 +131,13 @@ public class DocController extends BaseController{
 		{
 			return;
 		}
-		
+				
 		if(commitMsg == null || commitMsg.isEmpty())
 		{
 			commitMsg = "新增 [" + path + name + "]";
 		}
+		
+		//TODO: 需要检查用户是否有文件的增加权限
 		saveDocToRepos(
 				"addDoc", "addDoc", "新增", taskId,
 				repos, path, name, 0L, type, null,
@@ -360,6 +362,8 @@ public class DocController extends BaseController{
 		//禁用远程操作，否则会存在远程推送的回环（造成死循环）
 		repos.disableRemoteAction = true;
 		
+		
+		//TODO: 需要检查用户是否有文件的删除权限
 		deleteDocFromRepos(
 				"deleteDocRS", "deleteDocRS", "删除", taskId,
 				repos, path, name, null, type, null,
@@ -1867,7 +1871,7 @@ public class DocController extends BaseController{
 		{
 			return;
 		}
-						
+				
 		//禁用远程操作，否则会存在远程推送的回环（造成死循环）
 		repos.disableRemoteAction = true;
 				
@@ -1875,6 +1879,8 @@ public class DocController extends BaseController{
 		{
 			commitMsg = "上传文件 [" + path + name + "]";
 		}
+		
+		//TODO: 需要检查用户是否有文件的写入或增加权限
 		saveDocToRepos(
 				"uploadDocRS", "uploadDocRS", "文件上传", taskId,
 				repos, path, name, size, type, checkSum,
