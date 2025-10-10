@@ -70,7 +70,7 @@ function getBrowserLang()
     
 //构造 buildRequestParamStrForDoc 和 getDocInfoFromRequestParamStr 需要成对使用，用于前端页面之间传递参数
 //如果是传给后台的url需要用base64_urlsafe_encode
-function buildRequestParamStrForDoc(docInfo)
+function buildRequestParamStrForDoc(docInfo, langType)
 {
 	if(!docInfo)
 	{
@@ -198,6 +198,17 @@ function buildRequestParamStrForDoc(docInfo)
 	else
 	{
 		urlParamStr += andFlag + "downloadEn=" + docInfo.downloadEn;
+		andFlag = "&";
+	}
+	
+    //设置语言类型
+	if(lang == undefined)
+	{
+		//TODO: 如果未定义则不要传递
+	}
+	else
+	{
+		urlParamStr += andFlag + "langType=" + langType;
 		andFlag = "&";
 	}
 	
@@ -2505,7 +2516,8 @@ function showOfficeInNewPage(docInfo)
 {	
 	console.log("showOfficeInNewPage docInfo:", docInfo);
 
-    var urlParamStr = buildRequestParamStrForDoc(docInfo);
+    var urlParamStr = buildRequestParamStrForDoc(docInfo, langType);
+    
     console.log("urlParamStr=" + urlParamStr);
 	var link = "/DocSystem/web/office.jsp?" + urlParamStr;
     window.open(link);
@@ -2961,17 +2973,21 @@ function showOfficeInDialog(docInfo)
 		big: true,
 		mstyle: "width:95%;height:95%;",
 		callback: function(){
-			setTimeout(function(){ OfficeEditor.PageInit(docInfo); }, 2000); 
+			setTimeout(function(){ OfficeEditor.PageInit(docInfo, langType); }, 2000); 
 		},
 	});
 }
 
-function showOfficeInArtDialog(docInfo) {
+function showOfficeInArtDialog(docInfo) 
+{
 	//获取窗口的高度并设置高度
 	var height =  getArtDialogInitHeight();
 	var width = getArtDialogInitWidth();
 	var ArtDialogDivContentId = "div[aria-describedby='content:ArtDialog"+docInfo.docId+"']";
 	var ArtDialogId = "ArtDialog"  + docInfo.docId;
+	
+	docInfo.langType = langType;	//传递langType参数
+	
 	var d = new artDialog({
 		id: "ArtDialog" + docInfo.docId,
 		title: docInfo.name,

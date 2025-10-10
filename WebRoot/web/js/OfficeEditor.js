@@ -12,7 +12,7 @@ var OfficeEditor = (function () {
     var lang = "zh-CN";
     
     //set_language
-    function set_language(lang)
+    function set_language(langType)
     {
 //    	语言代码 对应语言
 //    	en 		英语（默认）
@@ -36,9 +36,9 @@ var OfficeEditor = (function () {
 //    	th		泰语
 //    	vi		越南语
     	//目前暂时不考虑支持其他语言
-	    if(lang !== undefined)
+	    if(langType !== undefined)
 	    {
-	    	switch(lang)
+	    	switch(langType)
 	    	{
 	    	case "ch":
 	    	case "zh-CN":
@@ -51,7 +51,8 @@ var OfficeEditor = (function () {
 	    		lang = "zh-CN";	//默认中文
 	    		break;
 	    	}
-	    }    	
+	    }   
+		console.log("set_language() langType:" + langType + " lang:" + lang);
     }
     
 	//For ArtDialog
@@ -59,8 +60,6 @@ var OfficeEditor = (function () {
 	{
 	    var params = GetRequest();
 	    var docid = params['docid'];
-
-	    set_language(params['lang']); //设置语言
 	    	
 	    //获取artDialog父窗口传递过来的参数
 	    var artDialog2 = window.top.artDialogList['ArtDialog'+docid];
@@ -72,6 +71,8 @@ var OfficeEditor = (function () {
 	    docInfo = artDialog2.config.data;
 		console.log("docInfo:",docInfo);
 		
+	    set_language(docInfo.langType); //设置语言
+		
 		init();
 	}
 	
@@ -80,18 +81,18 @@ var OfficeEditor = (function () {
 	{
 	    docInfo = getDocInfoFromRequestParamStr();	    
 	 
-	    set_language(getQueryString("lang"));
+	    set_language(getQueryString("langType"));
 	    
 	    init();
 	}
 	
 	//For BootstrapDialog
-	function PageInit(Input_doc, Input_lang)
+	function PageInit(Input_doc, Input_langType)
 	{
 		console.log("PageInit InputDoc:", Input_doc);
 		docInfo = Input_doc;
 		
-		set_language(Input_lang);
+		set_language(Input_langType);
 		
 		init();
 	}	
