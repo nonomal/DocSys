@@ -9,12 +9,59 @@ var OfficeEditor = (function () {
     var historyList;
     var historyData;
     var isExternalOffice = false;
-
+    var lang = "zh-CN";
+    
+    //set lang with langType
+    function setLangWithLangType(langType)
+    {
+//    	语言代码 对应语言
+//    	en 		英语（默认）
+//    	zh-CN 	简体中文
+//    	zh-TW 	繁体中文（台湾）
+//    	ru		俄语
+//    	es		西班牙语
+//    	fr		法语
+//    	de		德语
+//    	ja		日语
+//    	ko		韩语
+//    	it		意大利语
+//    	pt-BR	巴西葡萄牙语
+//    	pt-PT	葡萄牙语（葡萄牙）
+//    	nl		荷兰语
+//    	sv		瑞典语
+//    	pl		波兰语
+//    	tr		土耳其语
+//    	ar		阿拉伯语（从右到左布局）
+//    	hi		印地语
+//    	th		泰语
+//    	vi		越南语
+    	//目前暂时不考虑支持其他语言
+	    if(langType !== undefined)
+	    {
+	    	switch(langType)
+	    	{
+	    	case "ch":
+	    		lang = "zh-CN";
+	    		break;
+	    	case "en":
+	    		lang = "en";
+	    		break;
+	    	default:
+	    		lang = "zh-CN";	//默认中文
+	    		break;
+	    	}
+	    }    	
+    }
+    
 	//For ArtDialog
 	function initForArtDialog() 
 	{
 	    var params = GetRequest();
 	    var docid = params['docid'];
+
+	    var langType = params['langType'];
+	    setLangWithLangType(langType); //设置语言
+	    	
 	    //获取artDialog父窗口传递过来的参数
 	    var artDialog2 = window.top.artDialogList['ArtDialog'+docid];
 	    if (artDialog2 == null) {
@@ -32,15 +79,21 @@ var OfficeEditor = (function () {
 	function initForNewPage()
 	{
 	    docInfo = getDocInfoFromRequestParamStr();	    
+	 
+	    var langType = getQueryString("langType");
+	    setLangWithLangType(langType);
 	    
 	    init();
 	}
 	
 	//For BootstrapDialog
-	function PageInit(Input_doc)
+	function PageInit(Input_doc, Input_langType)
 	{
 		console.log("PageInit InputDoc:", Input_doc);
 		docInfo = Input_doc;
+		
+	    var langType = Input_langType;
+	    setLangWithLangType(langType);
 		
 		init();
 	}	
@@ -211,7 +264,7 @@ var OfficeEditor = (function () {
     		    "editorConfig": {
     		    	"mode": mode,
                     "callbackUrl": saveFileLink,
-                    "lang": "zh-CN",
+                    "lang": lang,
                     "user": user,
                     "spellcheck": false,
                 },
