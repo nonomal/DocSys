@@ -202,7 +202,7 @@ function buildRequestParamStrForDoc(docInfo, langType)
 	}
 	
     //设置语言类型
-	if(lang == undefined)
+	if(langType == undefined)
 	{
 		//TODO: 如果未定义则不要传递
 	}
