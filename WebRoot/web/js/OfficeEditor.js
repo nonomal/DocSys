@@ -251,6 +251,7 @@ var OfficeEditor = (function () {
     		            "comment": editEn,
     		            "download": downloadEn,
     		            "edit": editEn,
+    		            "copy": editEn,
     		            "fillForms": editEn,
     		            "modifyContentControl": editEn,
     		            "modifyFilter": editEn,
@@ -278,6 +279,7 @@ var OfficeEditor = (function () {
                 "height": "100%",
                 "width": "100%",
     	};
+		console.log("showOffice() config:", config);
         docEditor = new DocsAPI.DocEditor("placeholder", config);
         
         function getOfficeDocHistoryList(docInfo, successCallback, errorCallback)
