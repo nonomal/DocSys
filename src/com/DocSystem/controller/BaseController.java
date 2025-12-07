@@ -2863,8 +2863,8 @@ public class BaseController  extends BaseFunction{
 		if(uLists.size() > 1)
 		{
 			Log.debug("defaultLoginCheck() 系统存在多个相同用户");
-			rt.setError("登录异常: 系统出现重名用户！");
-			return null;
+			//rt.setError("登录异常: 系统出现重名用户！");
+			//return null;
 		}
 		
 		//如果用户是LDAP用户，那么不允许登录
