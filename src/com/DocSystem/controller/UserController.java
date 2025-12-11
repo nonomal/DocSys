@@ -110,7 +110,7 @@ public class UserController extends BaseController {
 		}
 		return;
 	}
-
+	
 	//获取当前登录用户信息
 	@RequestMapping(value="getLoginUser")
 	public void getLoginUser(HttpServletRequest request,HttpSession session,HttpServletResponse response){
@@ -118,6 +118,14 @@ public class UserController extends BaseController {
 		Log.debug("getLoginUser SESSION ID:" + session.getId());
 		
 		ReturnAjax rt = new ReturnAjax();
+		
+		//TODO: 检查是否为安全环境下的访问
+		if(checkIfClientNetworkIsSafe(request) == false)
+		{
+			rt.setError("请在安全网络环境下访问!");			
+			writeJson(rt, response);	
+			return;			
+		}
 		
 		//查询系统中是否存在超级管理员
 		User qUser = new User();
@@ -158,6 +166,19 @@ public class UserController extends BaseController {
 		}
 	}
 	
+	private boolean checkIfClientNetworkIsSafe(HttpServletRequest request) 
+	{
+		//TODO: 如果配置了安全网络参数，则需要检查用户是否处于安全网络环境
+		//TODO: 安全网络参数包括安全IP地址掩码列表（白名单）和危险IP地址掩码列表（黑名单）
+		//if(safeNetworkConfig != null)
+		//{
+		//	String clientIP = getRequestIpAddress(request);
+		//	1. clientIP在白名单里则允许访问，否则禁止访问
+		//	2. clientIP在黑名单里则禁止访问，否则允许访问
+		//}
+		return true;
+	}
+
 	//登出接口
 	@RequestMapping(value="logout")
 	public void logOut(HttpServletRequest request, HttpSession session,HttpServletResponse response,ModelMap model,String type){

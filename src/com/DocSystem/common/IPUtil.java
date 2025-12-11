@@ -57,7 +57,8 @@ public class IPUtil {
 		return macStr;
 	}
 
-	public static String getIpAddress(HttpServletRequest request) {
+	public static String getIpAddress(HttpServletRequest request) 
+	{
 		String ip = request.getHeader("x-forwarded-for");
 		if (ip == null || ip.length() == 0 || "unknown".equalsIgnoreCase(ip)) {
 		ip = request.getHeader("Proxy-Client-IP");
@@ -74,7 +75,11 @@ public class IPUtil {
 		if (ip == null || ip.length() == 0 || "unknown".equalsIgnoreCase(ip)) {
 		ip = request.getRemoteAddr();
 		}
+		
+	    // 如果是多个代理，取第一个IP
+	    if (ip != null && ip.contains(",")) {
+	        ip = ip.split(",")[0].trim();
+	    }
 		return ip;
 	}
-	
 }
