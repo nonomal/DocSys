@@ -30,6 +30,7 @@ import com.DocSystem.service.impl.UserServiceImpl;
 import com.DocSystem.controller.BaseController;
 import com.DocSystem.common.FileUtil;
 import com.DocSystem.common.Log;
+import com.DocSystem.common.entity.SystemAllowedNetworkConfig;
 import com.DocSystem.commonService.EmailService;
 import com.DocSystem.commonService.SmsService;
 
@@ -169,14 +170,28 @@ public class UserController extends BaseController {
 	private boolean checkIfClientNetworkIsSafe(HttpServletRequest request) 
 	{
 		//TODO: 如果配置了安全网络参数，则需要检查用户是否处于安全网络环境
-		//TODO: 安全网络参数包括安全IP地址掩码列表（白名单）和危险IP地址掩码列表（黑名单）
-		//if(safeNetworkConfig != null)
-		//{
-		//	String clientIP = getRequestIpAddress(request);
-		//	1. clientIP在白名单里则允许访问，否则禁止访问
-		//	2. clientIP在黑名单里则禁止访问，否则允许访问
-		//}
-		return true;
+		if(systemAllowedNetworkConfig == null)
+		{
+			return true;
+		}
+		
+		if(systemAllowedNetworkConfig.enabled == false)
+		{
+			return true;
+		}
+		
+		if(systemAllowedNetworkConfig.allowedNetworkList == null)
+		{
+			return true;
+		}
+		
+		if(systemAllowedNetworkConfig.allowedNetworkList.isEmpty())
+		{
+			return true;
+		}
+		
+		String clientIP = getRequestIpAddress(request);
+		return SystemAllowedNetworkConfig.isAllowedNetwork(clientIP, systemAllowedNetworkConfig.allowedNetworkList);
 	}
 
 	//登出接口

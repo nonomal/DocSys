@@ -1178,6 +1178,7 @@ public class ManageController extends BaseController{
 			String indexDBStorePath,
 			String salesDataStorePath,
 			String ldapConfig,
+			String allowedNetworkConfig,
 			String llmConfig,
 			Integer logLevel,
 			String logFile,
@@ -1197,6 +1198,7 @@ public class ManageController extends BaseController{
 				+ " salesDataStorePath:" + salesDataStorePath 
 				+ " maxThreadCount:" + maxThreadCount 
 				+ " ldapConfig:" + ldapConfig
+				+ " allowedNetworkConfig:" + allowedNetworkConfig
 				+ " llmConfig:" + llmConfig
 				+ " logLevel:" + logLevel + " logFile:" + logFile
 				+ " redisEn:" + redisEn + " redisUrl:" + redisUrl + " clusterServerUrl:" + clusterServerUrl);
@@ -1400,6 +1402,11 @@ public class ManageController extends BaseController{
 		if(ldapConfig != null)
 		{
 			applySystemLdapConfig(ldapConfig);			
+		}
+		
+		if(allowedNetworkConfig != null)
+		{
+			applySystemAllowedNetworkConfig(allowedNetworkConfig);						
 		}
 		
 		if(llmConfig != null)

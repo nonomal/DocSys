@@ -75,6 +75,8 @@ import com.DocSystem.common.entity.DownloadPrepareTask;
 import com.DocSystem.common.entity.EncryptConfig;
 import com.DocSystem.common.entity.FtpConfig;
 import com.DocSystem.common.entity.GitConfig;
+import com.DocSystem.common.entity.IPRuleConfig;
+import com.DocSystem.common.entity.LDAPConfig;
 import com.DocSystem.common.entity.LargeFileScanTask;
 import com.DocSystem.common.entity.License;
 import com.DocSystem.common.entity.LocalConfig;
@@ -96,6 +98,7 @@ import com.DocSystem.common.entity.SftpConfig;
 import com.DocSystem.common.entity.SmbConfig;
 import com.DocSystem.common.entity.LongTermTask;
 import com.DocSystem.common.entity.SvnConfig;
+import com.DocSystem.common.entity.SystemAllowedNetworkConfig;
 import com.DocSystem.common.entity.GenericTask;
 import com.DocSystem.common.entity.SystemLog;
 import com.DocSystem.common.entity.UserPreferServer;
@@ -167,6 +170,9 @@ public class BaseFunction{
     
     //系统LDAP设置
     public static SystemLDAPConfig systemLdapConfig = null;
+    
+    //系统安全网络设置
+    public static SystemAllowedNetworkConfig systemAllowedNetworkConfig = null;    
 
     //系统LLM设置
     public static SystemLLMConfig systemLLMConfig = null;
@@ -330,6 +336,7 @@ public class BaseFunction{
 		initSystemLicenseInfo();
     	initOfficeLicenseInfo();
     	initLdapConfig();
+    	intSystemAllowedNetworkConfig();
     	initLLMConfig();
 		serverHost = getServerHost();
 		clusterServerUrl = getClusterServerUrl();
@@ -2440,6 +2447,17 @@ public class BaseFunction{
 		}		
 	}
 	
+	////////////////// Allowed Network
+	protected static void intSystemAllowedNetworkConfig()
+	{
+		Log.debug("intSystemAllowedNetworkConfig() ");
+		String value = ReadProperties.getValue(docSysIniPath + "docSysConfig.properties", "allowedNetworkConfig");
+		if(value != null)
+		{
+			applySystemAllowedNetworkConfig(value);
+		}
+	}
+	
 	//LLM
 	protected static void initLLMConfig() {
 		Log.debug("initLLMConfig() ");
@@ -2465,6 +2483,52 @@ public class BaseFunction{
 			}		
 		}
 	}
+	
+	protected static void applySystemAllowedNetworkConfig(String systemAllowedNetworkConfigStr) 
+	{
+		//Update系统AllowedNetwork
+		systemAllowedNetworkConfig = getSystemAllowedNetworkConfig(systemAllowedNetworkConfigStr);
+		if(systemAllowedNetworkConfig != null)
+		{
+			if(docSysType == constants.DocSys_Enterprise_Edition)
+			{
+				systemAllowedNetworkConfig.enabled = true;
+			}
+			else
+			{
+				systemAllowedNetworkConfig.enabled = false;				
+			}		
+		}
+	}
+	
+	private static SystemAllowedNetworkConfig getSystemAllowedNetworkConfig(String systemAllowedNetworkConfigStr) 
+	{
+		SystemAllowedNetworkConfig config = new SystemAllowedNetworkConfig();		
+		if(systemAllowedNetworkConfigStr == null || systemAllowedNetworkConfigStr.isEmpty())
+		{
+			Log.debug("getSystemAllowedNetworkConfig() systemAllowedNetworkConfigStr is empty");
+			return config;
+		}
+		
+		Log.debug("getSystemAllowedNetworkConfig() systemAllowedNetworkConfigStr【" + systemAllowedNetworkConfigStr + "】");		
+		
+		String [] ipRuleConfigStrArray = systemAllowedNetworkConfigStr.split(";"); 
+		for(int i=0; i < ipRuleConfigStrArray.length; i++)
+		{
+			String ipRuleConfigStr = ipRuleConfigStrArray[i];
+			Log.debug("getSystemAllowedNetworkConfig() ipRuleConfigStr:" + ipRuleConfigStr);
+			if(ipRuleConfigStr.length() > 4)
+			{
+				IPRuleConfig ipRuleConf = IPRuleConfig.parseIPRuleConfig(ipRuleConfigStr);
+				if(ipRuleConf != null)
+				{
+					config.allowedNetworkList.add(ipRuleConf);
+				}
+			}
+		}
+		return config;	
+	}
+
 	protected static void applySystemLLMConfig(String systemLLMConfigStr) {
 		//UPdate系统LLMConfig
 		systemLLMConfig = LLMUtil.getSystemLLMConfig(systemLLMConfigStr);

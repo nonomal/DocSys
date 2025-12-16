@@ -14248,6 +14248,7 @@ public class BaseController  extends BaseFunction{
 				initDocSysDataPath();
 				initRedis();		
 				initLdapConfig();
+				intSystemAllowedNetworkConfig();
 				initLLMConfig();
 				clusterServerUrl = getClusterServerUrl();
 				
