@@ -5428,6 +5428,17 @@ public class BaseFunction{
 
 		return null;
 	}
+	//获取AllowedNetwork设置
+	protected static String getAllowedNetworkConfig() {
+		String config = null;
+		config = ReadProperties.read("docSysConfig.properties", "allowedNetworkConfig");
+		if(config != null && !config.isEmpty())
+		{
+			return config;
+		}
+		
+		return null;
+	}
 	//获取LLM设置
 	protected static String getLLMConfig() {
 		String LLMConfig = null;

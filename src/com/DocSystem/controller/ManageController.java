@@ -9,16 +9,12 @@ import java.util.Date;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
-import java.util.Map;
 import java.util.Map.Entry;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
-import javax.naming.NamingException;
-import javax.naming.directory.SearchResult;
-import javax.naming.ldap.LdapContext;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import javax.servlet.http.HttpSession;
@@ -901,6 +897,7 @@ public class ManageController extends BaseController{
 		String javaHome = getJavaHome();
 		String officeEditorApi = Path.getOfficeEditorApi();
 		String ldapConfig = getLdapConfig();
+		String allowedNetworkConfig = getAllowedNetworkConfig();
 		String llmConfig = getLLMConfig();		
 		Integer maxThreadCount = getMaxThreadCount();
 		Integer redisEn = getRedisEn();
@@ -916,6 +913,7 @@ public class ManageController extends BaseController{
 		config.put("tomcatPath", tomcatPath);
 		config.put("javaHome", javaHome);
 		config.put("ldapConfig", ldapConfig);
+		config.put("allowedNetworkConfig", allowedNetworkConfig);
 		config.put("llmConfig", llmConfig);
 		config.put("logLevel", Log.logLevel);
 		config.put("logFile", Log.logFileConfig);
@@ -1221,6 +1219,7 @@ public class ManageController extends BaseController{
 			indexDBStorePath == null &&
 			salesDataStorePath == null &&
 			ldapConfig == null &&
+			allowedNetworkConfig == null &&
 			llmConfig == null &&
 			logLevel == null &&
 			logFile == null &&
@@ -1320,6 +1319,21 @@ public class ManageController extends BaseController{
 				}
 			}
 			ReadProperties.setValue(tmpDocSystemConfigPath + configFileName, "ldapConfig", ldapConfig);
+		}
+		if(allowedNetworkConfig != null)
+		{
+			if(!allowedNetworkConfig.isEmpty())
+			{
+				if(docSysType == constants.DocSys_Professional_Edition)
+				{
+					docSysErrorLog("专业版不支持网络安全检查，请购买企业版！", rt);
+				}
+				else if(docSysType == constants.DocSys_Personal_Edition)
+				{
+					docSysErrorLog("个人版不支持网络安全检查，请购买企业版！", rt);
+				}
+			}
+			ReadProperties.setValue(tmpDocSystemConfigPath + configFileName, "allowedNetworkConfig", allowedNetworkConfig);
 		}
 		if(llmConfig != null)
 		{

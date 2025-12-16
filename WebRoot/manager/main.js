@@ -1199,6 +1199,7 @@ var systemInfo = {
 		indexDBStorePath:"",
 		salesDataStorePath:"",			
 		ldapConfig:"",	//LDAP Config
+		allowedNetworkConfig:"",	//allowedNetworkConfig
 		llmConfig:"",	//AI LLM Config
 		logLevel: 1,	//default info
 		logFile : "", //defualt not set
@@ -1222,6 +1223,7 @@ function enableSystemInfoSet(){
 	$("#indexDBStorePath").val(systemInfo.indexDBStorePath);
 	$("#salesDataStorePath").val(systemInfo.salesDataStorePath);
 	$("#ldapConfig").val(systemInfo.ldapConfig);
+	$("#allowedNetworkConfig").val(systemInfo.allowedNetworkConfig);
 	$("#llmConfig").val(systemInfo.llmConfig);
 	$("#maxThreadCount option[value='"+systemInfo.maxThreadCount+"']").attr("selected","selected");
 	$("#logLevel option[value='"+systemInfo.logLevel+"']").attr("selected","selected");
@@ -1235,6 +1237,7 @@ function enableSystemInfoSet(){
 	$("#indexDBStorePath").attr('disabled',false);
 	$("#salesDataStorePath").attr('disabled',false);
 	$("#ldapConfig").attr('disabled',false);
+	$("#allowedNetworkConfig").attr('disabled',false);
 	$("#llmConfig").attr('disabled',false);
 	$("#maxThreadCount").attr('disabled',false);		
 	$("#logLevel").attr('disabled',false);		
@@ -1267,6 +1270,7 @@ function cancelSystemInfoSet(){
 	$("#indexDBStorePath").attr('disabled',true);
 	$("#salesDataStorePath").attr('disabled',true);
 	$("#ldapConfig").attr('disabled',true);
+	$("#allowedNetworkConfig").attr('disabled',true);
 	$("#llmConfig").attr('disabled',true);
 	$("#maxThreadCount").attr('disabled',true);
 	$("#logLevel").attr('disabled',true);
@@ -1285,6 +1289,7 @@ function cancelSystemInfoSet(){
 	$("#indexDBStorePath").val(systemInfo.indexDBStorePath);
 	$("#salesDataStorePath").val(systemInfo.salesDataStorePath);
 	$("#ldapConfig").val(systemInfo.ldapConfig);
+	$("#allowedNetworkConfig").val(systemInfo.allowedNetworkConfig);
 	$("#llmConfig").val(systemInfo.llmConfig);
 	$("#maxThreadCount option[value='"+systemInfo.maxThreadCount+"']").attr("selected","selected");
 	$("#logLevel option[value='"+systemInfo.logLevel+"']").attr("selected","selected");
@@ -1327,6 +1332,7 @@ function saveSystemInfoSet(){
 	$("#salesDataStorePath").attr('disabled',true);
 			
 	$("#ldapConfig").attr('disabled',true);
+	$("#allowedNetworkConfig").attr('disabled',true);
 	$("#llmConfig").attr('disabled',true);
 
 	$("#maxThreadCount").attr('disabled',true);
@@ -1347,6 +1353,7 @@ function saveSystemInfoSet(){
 	var indexDBStorePath = $("#indexDBStorePath").val();
 	var salesDataStorePath = $("#salesDataStorePath").val();
 	var ldapConfig = $("#ldapConfig").val();
+	var allowedNetworkConfig = $("#allowedNetworkConfig").val();
 	var llmConfig = $("#llmConfig").val();
 	var maxThreadCount = $("#maxThreadCount").val();
 	var logLevel = $("#logLevel").val();
@@ -1374,6 +1381,7 @@ function saveSystemInfoSet(){
 			indexDBStorePath,
 			salesDataStorePath,
 			ldapConfig, 
+			allowedNetworkConfig, 
 			llmConfig, 
 			logLevel,
 			outputToFileEn,
@@ -1393,6 +1401,7 @@ function updateSystemInfo(tomcatPath,
 		indexDBStorePath,
 		salesDataStorePath,
 		ldapConfig, 
+		allowedNetworkConfig, 
 		llmConfig, 
 		logLevel, 
 		ouputToFileEn,
@@ -1416,6 +1425,7 @@ function updateSystemInfo(tomcatPath,
         	indexDBStorePath: indexDBStorePath,
         	salesDataStorePath: salesDataStorePath,
         	ldapConfig: ldapConfig,
+        	allowedNetworkConfig: allowedNetworkConfig,
         	llmConfig: llmConfig,
         	logLevel: logLevel,
         	logFile: logFile,
@@ -1437,6 +1447,7 @@ function updateSystemInfo(tomcatPath,
         		systemInfo.indexDBStorePath = indexDBStorePath;
         		systemInfo.salesDataStorePath = salesDataStorePath;
         		systemInfo.ldapConfig = ldapConfig;
+        		systemInfo.allowedNetworkConfig = allowedNetworkConfig;
         		systemInfo.llmConfig = llmConfig;
         		systemInfo.maxThreadCount = maxThreadCount;
         		systemInfo.logLevel = logLevel;
@@ -1461,6 +1472,7 @@ function updateSystemInfo(tomcatPath,
         		$("#indexDBStorePath").val(systemInfo.indexDBStorePath);
         		$("#salesDataStorePath").val(systemInfo.salesDataStorePath);
         		$("#ldapConfig").val(systemInfo.ldapConfig);
+        		$("#allowedNetworkConfig").val(systemInfo.allowedNetworkConfig);
         		$("#llmConfig").val(systemInfo.llmConfig);
         		$("#maxThreadCount").val(systemInfo.maxThreadCount);
         		$("#logLevel").val(systemInfo.logLevel);
@@ -1497,6 +1509,7 @@ function updateSystemInfo(tomcatPath,
     		$("#indexDBStorePath").val(systemInfo.indexDBStorePath);
     		$("#salesDataStorePath").val(systemInfo.salesDataStorePath);
     		$("#ldapConfig").val(systemInfo.ldapConfig);
+    		$("#allowedNetworkConfig").val(systemInfo.allowedNetworkConfig);
     		$("#llmConfig").val(systemInfo.llmConfig);
     		$("#maxThreadCount").val(systemInfo.maxThreadCount);
     		$("#logLevel").val(systemInfo.logLevel);
