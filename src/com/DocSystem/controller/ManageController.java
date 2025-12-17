@@ -1322,17 +1322,6 @@ public class ManageController extends BaseController{
 		}
 		if(allowedNetworkConfig != null)
 		{
-			if(!allowedNetworkConfig.isEmpty())
-			{
-				if(docSysType == constants.DocSys_Professional_Edition)
-				{
-					docSysErrorLog("专业版不支持网络安全检查，请购买企业版！", rt);
-				}
-				else if(docSysType == constants.DocSys_Personal_Edition)
-				{
-					docSysErrorLog("个人版不支持网络安全检查，请购买企业版！", rt);
-				}
-			}
 			ReadProperties.setValue(tmpDocSystemConfigPath + configFileName, "allowedNetworkConfig", allowedNetworkConfig);
 		}
 		if(llmConfig != null)

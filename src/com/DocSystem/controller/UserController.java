@@ -119,15 +119,7 @@ public class UserController extends BaseController {
 		Log.debug("getLoginUser SESSION ID:" + session.getId());
 		
 		ReturnAjax rt = new ReturnAjax();
-		
-		//TODO: 检查是否为安全环境下的访问
-		if(checkIfClientNetworkIsSafe(request) == false)
-		{
-			rt.setError("请在安全网络环境下访问!");			
-			writeJson(rt, response);	
-			return;			
-		}
-		
+				
 		//查询系统中是否存在超级管理员
 		User qUser = new User();
 		qUser.setType(2); //超级管理员
@@ -165,33 +157,6 @@ public class UserController extends BaseController {
 				completeClusterDeployCheck();
 			}
 		}
-	}
-	
-	private boolean checkIfClientNetworkIsSafe(HttpServletRequest request) 
-	{
-		//TODO: 如果配置了安全网络参数，则需要检查用户是否处于安全网络环境
-		if(systemAllowedNetworkConfig == null)
-		{
-			return true;
-		}
-		
-		if(systemAllowedNetworkConfig.enabled == false)
-		{
-			return true;
-		}
-		
-		if(systemAllowedNetworkConfig.allowedNetworkList == null)
-		{
-			return true;
-		}
-		
-		if(systemAllowedNetworkConfig.allowedNetworkList.isEmpty())
-		{
-			return true;
-		}
-		
-		String clientIP = getRequestIpAddress(request);
-		return SystemAllowedNetworkConfig.isAllowedNetwork(clientIP, systemAllowedNetworkConfig.allowedNetworkList);
 	}
 
 	//登出接口

@@ -138,6 +138,7 @@ import com.DocSystem.common.entity.ReposFullBackupTask;
 import com.DocSystem.common.entity.SftpConfig;
 import com.DocSystem.common.entity.SmbConfig;
 import com.DocSystem.common.entity.SvnConfig;
+import com.DocSystem.common.entity.SystemAllowedNetworkConfig;
 import com.DocSystem.common.entity.UserPreferServer;
 import com.DocSystem.common.entity.LongTermTask;
 import com.DocSystem.common.entity.MxsDocConfig;
@@ -2681,6 +2682,13 @@ public class BaseController  extends BaseFunction{
 	/***************************Basic Functions For Driver Level  **************************/
 	public User getLoginUser(HttpSession session, HttpServletRequest request, HttpServletResponse response, ReturnAjax rt)
 	{
+		//TODO: 检查是否为安全环境下的访问
+		if(checkIfClientNetworkIsSafe(request) == false)
+		{
+			rt.setError("请在安全网络环境下访问!");			
+			return null;			
+		}
+		
 		User user = (User) session.getAttribute("login_user");
 		if(user == null)
 		{
@@ -2761,7 +2769,7 @@ public class BaseController  extends BaseFunction{
 	}
 	
 	protected User loginCheck(String userName, String pwd, HttpServletRequest request, HttpSession session, HttpServletResponse response, ReturnAjax rt) 
-	{
+	{		
 		String decodedPwd = Base64Util.base64Decode(pwd);
 		
 		if(systemLdapConfig == null || systemLdapConfig.enabled == false || systemLdapConfig.ldapConfigList.isEmpty())
@@ -2772,9 +2780,60 @@ public class BaseController  extends BaseFunction{
 		return ldapLoginCheck(userName, pwd, decodedPwd, request, session, response, rt);
 	}
 	
+	
+	private boolean checkIfClientNetworkIsSafe(HttpServletRequest request) 
+	{
+		//TODO: 如果配置了安全网络参数，则需要检查用户是否处于安全网络环境
+		if(systemAllowedNetworkConfig == null)
+		{
+			Log.debug("checkIfClientNetworkIsSafe() systemAllowedNetworkConfig == null");
+			return true;
+		}
+		
+		if(systemAllowedNetworkConfig.enabled == false)
+		{
+			Log.debug("checkIfClientNetworkIsSafe() systemAllowedNetworkConfig.enabled == false");
+			return true;
+		}
+		
+		if(systemAllowedNetworkConfig.allowedNetworkList == null)
+		{
+			Log.debug("checkIfClientNetworkIsSafe() systemAllowedNetworkConfig.allowedNetworkList == null");
+			return true;
+		}
+		
+		if(systemAllowedNetworkConfig.allowedNetworkList.isEmpty())
+		{
+			Log.debug("checkIfClientNetworkIsSafe() systemAllowedNetworkConfig.allowedNetworkList.isEmpty()");
+			return true;
+		}
+		
+		String clientIP = getRequestIpAddress(request);
+		Log.debug("checkIfClientNetworkIsSafe() clientIP【" + clientIP + "】");			
+		if(clientIP.equals("127.0.0.1"))
+		{
+			//TODO: 本机需要总是允许
+			return true;
+		}
+		if(SystemAllowedNetworkConfig.isAllowedNetwork(clientIP, systemAllowedNetworkConfig.allowedNetworkList))
+		{
+			return true;
+		}
+		
+		Log.debug("checkIfClientNetworkIsSafe() 您当前所在网络【" + clientIP+ "】可能存在安全风险!!!");
+		return false;
+	}
+	
 	private User ldapLoginCheck(String userName, String pwd, String decodedPwd, HttpServletRequest request,
 			HttpSession session, HttpServletResponse response, ReturnAjax rt) 
-	{
+	{		
+		//TODO: 检查是否为安全环境下的访问
+		if(checkIfClientNetworkIsSafe(request) == false)
+		{
+			rt.setError("请在安全网络环境下访问!");			
+			return null;			
+		}
+		
 		//LDAP模式
 		Log.info("ldapLoginCheck() LDAP Mode"); 
 		LdapLoginCheckResult checkResult = new LdapLoginCheckResult();
@@ -2844,6 +2903,14 @@ public class BaseController  extends BaseFunction{
 			HttpServletResponse response, ReturnAjax rt) 
 	{
 		Log.info("defaultLoginCheck() userName:" + userName);
+		
+		//TODO: 检查是否为安全环境下的访问
+		if(checkIfClientNetworkIsSafe(request) == false)
+		{
+			rt.setError("请在安全网络环境下访问!");			
+			return null;			
+		}
+		
 		String md5Pwd = MD5.md5(decodedPwd);
 
 		User tmp_user = new User();

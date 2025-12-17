@@ -2496,7 +2496,7 @@ public class BaseFunction{
 			}
 			else
 			{
-				systemAllowedNetworkConfig.enabled = false;				
+				systemAllowedNetworkConfig.enabled = true;				
 			}		
 		}
 	}
@@ -2517,13 +2517,10 @@ public class BaseFunction{
 		{
 			String ipRuleConfigStr = ipRuleConfigStrArray[i];
 			Log.debug("getSystemAllowedNetworkConfig() ipRuleConfigStr:" + ipRuleConfigStr);
-			if(ipRuleConfigStr.length() > 4)
+			IPRuleConfig ipRuleConf = IPRuleConfig.parseIPRuleConfig(ipRuleConfigStr);
+			if(ipRuleConf != null)
 			{
-				IPRuleConfig ipRuleConf = IPRuleConfig.parseIPRuleConfig(ipRuleConfigStr);
-				if(ipRuleConf != null)
-				{
-					config.allowedNetworkList.add(ipRuleConf);
-				}
+				config.allowedNetworkList.add(ipRuleConf);
 			}
 		}
 		return config;	

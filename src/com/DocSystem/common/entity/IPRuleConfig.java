@@ -18,6 +18,8 @@ public class IPRuleConfig
 
 	public boolean isMatched(int[] ip_values) 
 	{
+		Log.debug("isMatched() rangList.size:" + rangeList.size());
+		Log.debug("isMatched() ip_values.size:" + ip_values.length);
 		if(rangeList.size() > ip_values.length)
 		{
 			return false;
@@ -27,13 +29,15 @@ public class IPRuleConfig
 		{
 			int ipVal = ip_values[i];
 			int[] range = rangeList.get(i);
-			if(ipVal >= range[0] && ipVal <= range[1])
+			
+			Log.debug("ipVal【" + ipVal + "】 range【" + range[0] + ", " + range[1] + "】");
+			if(ipVal < range[0] || ipVal > range[1])
 			{
-				return true;
+				return false;
 			}
 		}
 		
-		return false;
+		return true;
 	}
 	
 	public static IPRuleConfig parseIPRuleConfig(String iPRuleConfigStr) 
@@ -42,7 +46,8 @@ public class IPRuleConfig
 		//192.168.3.1-10	//范围
 		//192.168.3.*		//通配符
 		//192.168.3-10.*	//范围+通配符
-		String [] tempStr = iPRuleConfigStr.split(".");
+		Log.debug("parseIPRuleConfig() iPRuleConfigStr【" + iPRuleConfigStr + "】");
+		String [] tempStr = iPRuleConfigStr.split("\\.");
 		IPRuleConfig ipRuleConfig = new IPRuleConfig();
 		//TODO: 我假设已经检查过规则
 		for(int i=0; i<tempStr.length; i++)
@@ -53,15 +58,17 @@ public class IPRuleConfig
 				Log.debug("parseIPRuleConfig() 无效的IPRuleConfig【" + iPRuleConfigStr + "】");
 				return null;
 			}
+			Log.debug("parseIPRuleConfig() rangeStr【" + tempStr[i] + "】 range【" +range[0]+ "," + range[1] + "】");
 			ipRuleConfig.rangeList.add(range);
 		}
 		return ipRuleConfig;
 	}
 
 	private static int[] getIPRuleRange(String IPRuleRangeStr) 
-	{
+	{		
 		int[] range = new int[2];			
 		
+		IPRuleRangeStr = IPRuleRangeStr.trim();
 		//任意值
 		if(IPRuleRangeStr.equals("*"))
 		{
