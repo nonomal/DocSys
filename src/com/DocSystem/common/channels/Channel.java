@@ -250,7 +250,7 @@ public interface Channel {
     		String orgFontFolders,
     		int nFontFlag,
     		boolean needThumbnails,
-    		boolean force);
+    		boolean force) throws Exception;
 
 	//Convert OfficeFile to pdf file
 	boolean convertOfficeToPdf(Doc doc, String localEntryPath, String dstPath, String dstName);
