@@ -37,8 +37,8 @@ function editUserNetworkSettings()
         type : "post",
         dataType : "json",
         data : {
-        	 id : id,
-             name : name,
+        	 userId : id,
+             userName : name,
              networkSettings : networkSettings,
         },
         success : function (ret) {

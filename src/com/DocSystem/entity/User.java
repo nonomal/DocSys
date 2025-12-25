@@ -44,12 +44,12 @@ public class User implements Serializable {
 
     private String intro;
 
+    public String networkSettings;	//网络限制（这个参数是存储在文件里的）
+
     public Integer docSysType;
 
 	public int isSalesServer;
-	
-	public String networkSettings;	//网络限制
-    
+	    
     public Integer getId() {
         return id;
     }
@@ -192,13 +192,5 @@ public class User implements Serializable {
 
     public void setIntro(String intro) {
         this.intro = intro == null ? null : intro.trim();
-    }
-    
-    public String getNetworkSettings() {
-        return networkSettings;
-    }
-
-    public void setNetworkSettings(String networkSettings) {
-        this.networkSettings = networkSettings;
     }
 }

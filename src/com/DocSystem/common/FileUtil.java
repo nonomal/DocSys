@@ -112,7 +112,7 @@ public class FileUtil {
 			}
 		}
 			
-		Log.debug("saveDocContentToFile " +path+ " encode:" + encode);
+		Log.debug("saveDocContentToFile " + path + name + " encode:" + encode);
 		byte[] buff = getBytes(content, encode);
 		return saveDataToFile(buff, path, name);		
 	}

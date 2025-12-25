@@ -2054,7 +2054,7 @@ public class ManageController extends BaseController{
 		//TODO: 获取用户可访问网络配置
 		for(User tempUser : UserList)
 		{
-			tempUser.networkSettings = getUserNetworkSettings(tempUser);
+			tempUser.networkSettings = getUserNetworkSettings(tempUser.getId());
 		}
 		
 		rt.setData(UserList);
@@ -2432,7 +2432,7 @@ public class ManageController extends BaseController{
 	}
 	
 	@RequestMapping(value="editUserNetworkSettings")
-	public void editUserNetworkSettings(User user, HttpSession session, HttpServletRequest request, HttpServletResponse response)
+	public void editUserNetworkSettings(Integer userId, String userName, String networkSettings, HttpSession session, HttpServletRequest request, HttpServletResponse response)
 	{
 		Log.infoHead("****************** editUserNetworkSettings.do ***********************");
 		
@@ -2461,10 +2461,6 @@ public class ManageController extends BaseController{
 			return;			
 		}
 		
-		Integer userId = user.getId();
-		String userName = user.getName();
-		String networkSettings = user.getNetworkSettings();
-		
 		Log.debug("userId:" + userId + " userName:"+userName + " networkSettings:" + networkSettings);
 		
 		if(userId == null)
@@ -2475,7 +2471,13 @@ public class ManageController extends BaseController{
 			return;
 		}		
 		
-		updateUserNetworkSettings(user, networkSettings);
+		if(updateUserNetworkSettings(userId, networkSettings) == false)
+		{
+			docSysErrorLog("更新配置失败", rt);
+			writeJson(rt, response);
+			addSystemLog(request, login_user, "editUserNetworkSettings", "editUserNetworkSettings", "修改用户网络设置", null, "失败", null, null, null, buildSystemLogDetailContent(rt));				
+			return;			
+		}
 		
 		writeJson(rt, response);
 		addSystemLog(request, login_user, "editUserNetworkSettings", "editUserNetworkSettings", "修改用户网络设置", null, "成功", null, null, null, buildSystemLogDetailContent(rt));				
@@ -2483,27 +2485,31 @@ public class ManageController extends BaseController{
 	}
 
 	
-	private void updateUserNetworkSettings(User user, String networkSettings) 
+	private boolean updateUserNetworkSettings(Integer userId, String networkSettings) 
 	{
 		String networkSettingsFolder = docSysIniPath + "userNetworkSettings/";
-		String userNetworkSettingsFileName = user.getId() + "_NetworkSettings.txt";
+		String userNetworkSettingsFileName = userId + "_NetworkSettings.txt";
 		if(networkSettings == null || networkSettings.isEmpty())
 		{
-			FileUtil.delFile(networkSettingsFolder + userNetworkSettingsFileName);
+			return FileUtil.delFile(networkSettingsFolder + userNetworkSettingsFileName);			
 		}
-		else
+
+		if(FileUtil.saveDocContentToFile(networkSettings, networkSettingsFolder, userNetworkSettingsFileName, "UTF-8") == false)
 		{
-			FileUtil.saveDocContentToFile(networkSettings, networkSettingsFolder, userNetworkSettingsFileName, "UTF-8");
-			//TODO: 解析networkSettings--更新到gNetworkRulesHash和userNetworkRulesHashMap
-			
+			return false;
 		}
+		//TODO: 解析networkSettings--更新到gNetworkRulesHash和userNetworkRulesHashMap
+			
+		return true;
+		
+		
 	}
 	
 	//TODO: 根据用户ID和name获取用户的网络限制配置信息
-	private String getUserNetworkSettings(User user) 
+	private String getUserNetworkSettings(Integer userId) 
 	{
 		String networkSettingsFolder = docSysIniPath + "userNetworkSettings/";
-		String userNetworkSettingsFileName = user.getId() + "_NetworkSettings.txt";
+		String userNetworkSettingsFileName = userId + "_NetworkSettings.txt";
 		if(FileUtil.isFileExist(networkSettingsFolder + userNetworkSettingsFileName) == false)
 		{
 			return null;
