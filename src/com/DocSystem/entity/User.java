@@ -193,4 +193,12 @@ public class User implements Serializable {
     public void setIntro(String intro) {
         this.intro = intro == null ? null : intro.trim();
     }
+    
+    public String getNetworkSettings() {
+        return networkSettings;
+    }
+
+    public void setNetworkSettings(String networkSettings) {
+        this.networkSettings = networkSettings;
+    }
 }

@@ -22,9 +22,12 @@ function EnterKeyListenerForEditUserNetworkSettings(){
  	}  
 }
 
-function editUserNetworkSettings(){
+function editUserNetworkSettings()
+{
 	console.log("editUserNetworkSettings()");
 
+	var id =  $("#userId").val();
+	var name = $("#name").val();
 	var networkSettings = $("#networkSettings").val();
     
     console.log("editUserNetworkSettings()",id, networkSettings);
@@ -56,5 +59,5 @@ function editUserNetworkSettings(){
 $(function(){
 	console.log("editUserNetworkSettings Page init");
 	EditUserNetworkSettingsPageInit();
-	$("#name").click().focus();
+	$("#networkSettings").click().focus();
 });

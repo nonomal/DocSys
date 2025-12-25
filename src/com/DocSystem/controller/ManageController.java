@@ -2062,11 +2062,6 @@ public class ManageController extends BaseController{
 		writeJson(rt, response);
 	}
 	
-	//TODO: 根据用户ID和name获取用户的网络限制配置信息
-	private String getUserNetworkSettings(User tempUser) {
-		// TODO Auto-generated method stub
-		return null;
-	}
 
 	@RequestMapping(value="addFirstAdminUser")
 	public void addFirstAdminUser(User user, HttpSession session,HttpServletRequest request,HttpServletResponse response)
@@ -2435,8 +2430,88 @@ public class ManageController extends BaseController{
 		addSystemLog(request, login_user, "resetPwd", "resetPwd", "重置用户密码", null, "成功", null, null, null, buildSystemLogDetailContent(rt));				
 		return;
 	}
+	
+	@RequestMapping(value="editUserNetworkSettings")
+	public void editUserNetworkSettings(User user, HttpSession session, HttpServletRequest request, HttpServletResponse response)
+	{
+		Log.infoHead("****************** editUserNetworkSettings.do ***********************");
+		
+		Log.debug("editUserNetworkSettings");
+		ReturnAjax rt = new ReturnAjax();
+		User login_user = (User) session.getAttribute("login_user");
+		if(login_user == null)
+		{
+			docSysErrorLog("用户未登录，请先登录！", rt);
+			writeJson(rt, response);			
+			return;
+		}
+		
+		if(login_user.getType() < 1)
+		{
+			docSysErrorLog("非管理员用户，请联系统管理员！", rt);
+			writeJson(rt, response);			
+			return;
+		}
+		
+		if(login_user.getType() < 2)
+		{
+			docSysErrorLog("您无权进行此操作！", rt);
+			writeJson(rt, response);
+			addSystemLog(request, login_user, "editUserNetworkSettings", "editUserNetworkSettings", "修改用户网络设置", null, "失败", null, null, null, buildSystemLogDetailContent(rt));				
+			return;			
+		}
+		
+		Integer userId = user.getId();
+		String userName = user.getName();
+		String networkSettings = user.getNetworkSettings();
+		
+		Log.debug("userId:" + userId + " userName:"+userName + " networkSettings:" + networkSettings);
+		
+		if(userId == null)
+		{
+			docSysErrorLog("用户ID不能为空", rt);
+			writeJson(rt, response);
+			addSystemLog(request, login_user, "editUserNetworkSettings", "editUserNetworkSettings", "修改用户网络设置", null, "失败", null, null, null, buildSystemLogDetailContent(rt));				
+			return;
+		}		
+		
+		updateUserNetworkSettings(user, networkSettings);
+		
+		writeJson(rt, response);
+		addSystemLog(request, login_user, "editUserNetworkSettings", "editUserNetworkSettings", "修改用户网络设置", null, "成功", null, null, null, buildSystemLogDetailContent(rt));				
+		return;
+	}
 
 	
+	private void updateUserNetworkSettings(User user, String networkSettings) 
+	{
+		String networkSettingsFolder = docSysIniPath + "userNetworkSettings/";
+		String userNetworkSettingsFileName = user.getId() + "_NetworkSettings.txt";
+		if(networkSettings == null || networkSettings.isEmpty())
+		{
+			FileUtil.delFile(networkSettingsFolder + userNetworkSettingsFileName);
+		}
+		else
+		{
+			FileUtil.saveDocContentToFile(networkSettings, networkSettingsFolder, userNetworkSettingsFileName, "UTF-8");
+			//TODO: 解析networkSettings--更新到gNetworkRulesHash和userNetworkRulesHashMap
+			
+		}
+	}
+	
+	//TODO: 根据用户ID和name获取用户的网络限制配置信息
+	private String getUserNetworkSettings(User user) 
+	{
+		String networkSettingsFolder = docSysIniPath + "userNetworkSettings/";
+		String userNetworkSettingsFileName = user.getId() + "_NetworkSettings.txt";
+		if(FileUtil.isFileExist(networkSettingsFolder + userNetworkSettingsFileName) == false)
+		{
+			return null;
+		}
+		String networkSettings = FileUtil.readDocContentFromFile(networkSettingsFolder, userNetworkSettingsFileName, "UTF-8");
+		return networkSettings;
+	}
+
 	@RequestMapping(value="delUser")
 	public void delUser(Integer userId, HttpSession session, HttpServletRequest request, HttpServletResponse response)
 	{
