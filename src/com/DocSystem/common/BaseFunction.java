@@ -2547,11 +2547,18 @@ public class BaseFunction{
 		String userNetworkSettingsFileName = userId + "_NetworkSettings.txt";
 		if(networkSettings == null || networkSettings.isEmpty())
 		{
-			return FileUtil.delFile(networkSettingsFolder + userNetworkSettingsFileName);			
+			BaseFunction.userAllowedNetworkConfigMap.remove(userId);
+			if(FileUtil.delFile(networkSettingsFolder + userNetworkSettingsFileName) == false)
+			{
+				Log.debug("updateUserNetworkSettings() networkSettings 删除失败！");
+				return false;
+			}
+			return true;
 		}
 
 		if(FileUtil.saveDocContentToFile(networkSettings, networkSettingsFolder, userNetworkSettingsFileName, "UTF-8") == false)
 		{
+			Log.debug("updateUserNetworkSettings() networkSettings 保存失败！");
 			return false;
 		}
 		//TODO: 解析networkSettings并更新到userNetworkRulesMap
