@@ -144,6 +144,7 @@ import com.DocSystem.common.entity.LongTermTask;
 import com.DocSystem.common.entity.MxsDocConfig;
 import com.DocSystem.common.entity.GenericTask;
 import com.DocSystem.common.entity.GitConfig;
+import com.DocSystem.common.entity.IPRuleConfig;
 import com.DocSystem.entity.ChangedItem;
 import com.DocSystem.entity.Doc;
 import com.DocSystem.entity.DocAuth;
@@ -2682,12 +2683,12 @@ public class BaseController  extends BaseFunction{
 	/***************************Basic Functions For Driver Level  **************************/
 	public User getLoginUser(HttpSession session, HttpServletRequest request, HttpServletResponse response, ReturnAjax rt)
 	{
-		//TODO: 检查是否为安全环境下的访问
-		if(checkIfClientNetworkIsSafe(request) == false)
-		{
-			rt.setError("请在安全网络环境下访问!");			
-			return null;			
-		}
+//		//TODO: 检查是否为安全环境下的访问
+//		if(checkIfClientNetworkIsSafe(request) == false)
+//		{
+//			rt.setError("请在安全网络环境下访问!");			
+//			return null;			
+//		}
 		
 		User user = (User) session.getAttribute("login_user");
 		if(user == null)
@@ -2709,6 +2710,13 @@ public class BaseController  extends BaseFunction{
 					writeJson(rt, response);
 					return null;
 				}
+				
+				if(checkIfClientNetworkIsSafeForUser(request, loginUser.getId()) == false)
+				{
+					Log.debug("getLoginUser() 用户当前处于非安全网络，禁止登录！");
+					rt.setError("请在安全网络环境下访问!");
+					return null;
+				}				
 				
 				Log.debug("自动登录成功");
 				//Set session
@@ -2781,30 +2789,40 @@ public class BaseController  extends BaseFunction{
 	}
 	
 	
-	private boolean checkIfClientNetworkIsSafe(HttpServletRequest request) 
+//	private boolean checkIfClientNetworkIsSafe(HttpServletRequest request) 
+//	{
+//		//TODO: 如果配置了安全网络参数，则需要检查用户是否处于安全网络环境
+//		if(systemAllowedNetworkConfig == null)
+//		{
+//			Log.debug("checkIfClientNetworkIsSafe() systemAllowedNetworkConfig == null");
+//			return true;
+//		}
+//		
+//		if(systemAllowedNetworkConfig.enabled == false)
+//		{
+//			Log.debug("checkIfClientNetworkIsSafe() systemAllowedNetworkConfig.enabled == false");
+//			return true;
+//		}
+//		
+//		return checkIfClientNetworkIsSafeBasic(request, systemAllowedNetworkConfig.allowedNetworkList);
+//	}
+	private boolean checkIfClientNetworkIsSafeForUser(HttpServletRequest request, Integer userId) 
 	{
-		//TODO: 如果配置了安全网络参数，则需要检查用户是否处于安全网络环境
-		if(systemAllowedNetworkConfig == null)
+		List<IPRuleConfig> userAllowedNetworkList = getUserAllowedNetworkList(userId);
+		return checkIfClientNetworkIsSafeBasic(request, userAllowedNetworkList);
+	}
+	
+	private boolean checkIfClientNetworkIsSafeBasic(HttpServletRequest request, List<IPRuleConfig> allowedNetworkList) 
+	{
+		if(allowedNetworkList == null)
 		{
-			Log.debug("checkIfClientNetworkIsSafe() systemAllowedNetworkConfig == null");
+			Log.debug("checkIfClientNetworkIsSafe() allowedNetworkList == null");
 			return true;
 		}
 		
-		if(systemAllowedNetworkConfig.enabled == false)
+		if(allowedNetworkList.isEmpty())
 		{
-			Log.debug("checkIfClientNetworkIsSafe() systemAllowedNetworkConfig.enabled == false");
-			return true;
-		}
-		
-		if(systemAllowedNetworkConfig.allowedNetworkList == null)
-		{
-			Log.debug("checkIfClientNetworkIsSafe() systemAllowedNetworkConfig.allowedNetworkList == null");
-			return true;
-		}
-		
-		if(systemAllowedNetworkConfig.allowedNetworkList.isEmpty())
-		{
-			Log.debug("checkIfClientNetworkIsSafe() systemAllowedNetworkConfig.allowedNetworkList.isEmpty()");
+			Log.debug("checkIfClientNetworkIsSafe() allowedNetworkList.isEmpty()");
 			return true;
 		}
 		
@@ -2815,7 +2833,7 @@ public class BaseController  extends BaseFunction{
 			//TODO: 本机需要总是允许
 			return true;
 		}
-		if(SystemAllowedNetworkConfig.isAllowedNetwork(clientIP, systemAllowedNetworkConfig.allowedNetworkList))
+		if(SystemAllowedNetworkConfig.isAllowedNetwork(clientIP, allowedNetworkList))
 		{
 			return true;
 		}
@@ -2827,12 +2845,12 @@ public class BaseController  extends BaseFunction{
 	private User ldapLoginCheck(String userName, String pwd, String decodedPwd, HttpServletRequest request,
 			HttpSession session, HttpServletResponse response, ReturnAjax rt) 
 	{		
-		//TODO: 检查是否为安全环境下的访问
-		if(checkIfClientNetworkIsSafe(request) == false)
-		{
-			rt.setError("请在安全网络环境下访问!");			
-			return null;			
-		}
+//		//TODO: 检查是否为安全环境下的访问
+//		if(checkIfClientNetworkIsSafe(request) == false)
+//		{
+//			rt.setError("请在安全网络环境下访问!");			
+//			return null;			
+//		}
 		
 		//LDAP模式
 		Log.info("ldapLoginCheck() LDAP Mode"); 
@@ -2892,6 +2910,13 @@ public class BaseController  extends BaseFunction{
 			}
 		}
 		
+		if(checkIfClientNetworkIsSafeForUser(request, dbUser.getId()) == false)
+		{
+			Log.debug("ldapLoginCheck() 用户当前处于非安全网络，禁止登录！");
+			rt.setError("请在安全网络环境下访问!");
+			return null;
+		}	
+		
 		//TODO: 登录的用户名字和邮箱总是以LDAP的为准,因为LDAP上可能已经更新了
 		dbUser.setRealName(ldapLoginUser.getRealName());
 		dbUser.setEmail(ldapLoginUser.getEmail());
@@ -2904,12 +2929,12 @@ public class BaseController  extends BaseFunction{
 	{
 		Log.info("defaultLoginCheck() userName:" + userName);
 		
-		//TODO: 检查是否为安全环境下的访问
-		if(checkIfClientNetworkIsSafe(request) == false)
-		{
-			rt.setError("请在安全网络环境下访问!");			
-			return null;			
-		}
+//		//TODO: 检查是否为安全环境下的访问
+//		if(checkIfClientNetworkIsSafe(request) == false)
+//		{
+//			rt.setError("请在安全网络环境下访问!");			
+//			return null;			
+//		}
 		
 		String md5Pwd = MD5.md5(decodedPwd);
 
@@ -2943,6 +2968,12 @@ public class BaseController  extends BaseFunction{
 			return null;
 		}
 		
+		if(checkIfClientNetworkIsSafeForUser(request, user.getId()) == false)
+		{
+			Log.debug("defaultLoginCheck() 用户当前处于非安全网络，禁止登录！");
+			rt.setError("请在安全网络环境下访问!");
+			return null;
+		}
 		return user;
 	}
 

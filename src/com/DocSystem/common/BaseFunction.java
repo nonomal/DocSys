@@ -173,6 +173,8 @@ public class BaseFunction{
     
     //系统安全网络设置
     public static SystemAllowedNetworkConfig systemAllowedNetworkConfig = null;    
+    public static Map<String, IPRuleConfig> globalIPRuleConfigMap = new ConcurrentHashMap<String, IPRuleConfig>();
+    public static Map<Integer, List<IPRuleConfig>> userAllowedNetworkConfigMap = new ConcurrentHashMap<Integer, List<IPRuleConfig>>();
 
     //系统LLM设置
     public static SystemLLMConfig systemLLMConfig = null;
@@ -2525,6 +2527,86 @@ public class BaseFunction{
 		}
 		return config;	
 	}
+	
+	//TODO: 根据用户ID和name获取用户的网络限制配置信息
+	protected static String getUserNetworkSettings(Integer userId) 
+	{
+		String networkSettingsFolder = docSysIniPath + "userNetworkSettings/";
+		String userNetworkSettingsFileName = userId + "_NetworkSettings.txt";
+		if(FileUtil.isFileExist(networkSettingsFolder + userNetworkSettingsFileName) == false)
+		{
+			return null;
+		}
+		String networkSettings = FileUtil.readDocContentFromFile(networkSettingsFolder, userNetworkSettingsFileName, "UTF-8");
+		return networkSettings;
+	}
+	
+	protected static boolean updateUserNetworkSettings(Integer userId, String networkSettings) 
+	{
+		String networkSettingsFolder = docSysIniPath + "userNetworkSettings/";
+		String userNetworkSettingsFileName = userId + "_NetworkSettings.txt";
+		if(networkSettings == null || networkSettings.isEmpty())
+		{
+			return FileUtil.delFile(networkSettingsFolder + userNetworkSettingsFileName);			
+		}
+
+		if(FileUtil.saveDocContentToFile(networkSettings, networkSettingsFolder, userNetworkSettingsFileName, "UTF-8") == false)
+		{
+			return false;
+		}
+		//TODO: 解析networkSettings并更新到userNetworkRulesMap
+		applyUserAllowedNetworkList(userId, networkSettings);
+		
+		return true;	
+	}
+	
+	protected static List<IPRuleConfig> applyUserAllowedNetworkList(Integer userId, String networkSettings) 
+	{
+		if(networkSettings == null || networkSettings.isEmpty())
+		{
+			Log.debug("applyUserNetworkSettings() networkSettings is empty");
+			return null;
+		}
+				
+		Log.debug("applyUserNetworkSettings() networkSettings【" + networkSettings + "】");		
+		
+		List<IPRuleConfig> allowedNetworkList = new ArrayList<IPRuleConfig>();
+		
+		String [] ipRuleConfigStrArray = networkSettings.split(";"); 
+		for(int i=0; i < ipRuleConfigStrArray.length; i++)
+		{
+			String ipRuleConfigStr = ipRuleConfigStrArray[i];
+			Log.debug("applyUserNetworkSettings() ipRuleConfigStr:" + ipRuleConfigStr);
+			IPRuleConfig ipRuleConf = IPRuleConfig.parseIPRuleConfig(ipRuleConfigStr);
+			if(ipRuleConf != null)
+			{
+				allowedNetworkList.add(ipRuleConf);
+			}
+		}
+			
+		BaseFunction.userAllowedNetworkConfigMap.put(userId, allowedNetworkList);
+		return allowedNetworkList;
+	}
+	
+	protected static List<IPRuleConfig> getUserAllowedNetworkList(Integer userId) 
+	{
+		List<IPRuleConfig> allowedNetworkList = BaseFunction.userAllowedNetworkConfigMap.get(userId);
+		//TODO: 配置已存在那么直接返回
+		if(allowedNetworkList != null)
+		{
+			return allowedNetworkList;
+		}
+		
+		//TODO: 如果配置不存在，那么有可能是系统重新启动过，系统使用写时复制机制，只有用到的时候才去解析
+		String networkSettings = getUserNetworkSettings(userId);
+		if(networkSettings != null)
+		{
+			allowedNetworkList = applyUserAllowedNetworkList(userId, networkSettings);
+		}
+		
+		return allowedNetworkList;
+	}
+
 
 	protected static void applySystemLLMConfig(String systemLLMConfigStr) {
 		//UPdate系统LLMConfig

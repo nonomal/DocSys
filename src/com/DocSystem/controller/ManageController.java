@@ -49,14 +49,17 @@ import com.DocSystem.service.impl.UserServiceImpl;
 import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONArray;
 import com.alibaba.fastjson.JSONObject;
+import com.DocSystem.common.BaseFunction;
 import com.DocSystem.common.FileUtil;
 import com.DocSystem.common.Log;
 import com.DocSystem.common.Path;
 import com.DocSystem.common.constants;
 import com.DocSystem.common.entity.AuthCode;
+import com.DocSystem.common.entity.IPRuleConfig;
 import com.DocSystem.common.entity.LLMAccessCheckResult;
 import com.DocSystem.common.entity.LdapLoginCheckResult;
 import com.DocSystem.common.entity.QueryResult;
+import com.DocSystem.common.entity.SystemAllowedNetworkConfig;
 import com.DocSystem.common.entity.SystemLDAPConfig;
 import com.DocSystem.common.entity.SystemLLMConfig;
 import com.DocSystem.common.entity.LongTermTask;
@@ -2482,40 +2485,6 @@ public class ManageController extends BaseController{
 		writeJson(rt, response);
 		addSystemLog(request, login_user, "editUserNetworkSettings", "editUserNetworkSettings", "修改用户网络设置", null, "成功", null, null, null, buildSystemLogDetailContent(rt));				
 		return;
-	}
-
-	
-	private boolean updateUserNetworkSettings(Integer userId, String networkSettings) 
-	{
-		String networkSettingsFolder = docSysIniPath + "userNetworkSettings/";
-		String userNetworkSettingsFileName = userId + "_NetworkSettings.txt";
-		if(networkSettings == null || networkSettings.isEmpty())
-		{
-			return FileUtil.delFile(networkSettingsFolder + userNetworkSettingsFileName);			
-		}
-
-		if(FileUtil.saveDocContentToFile(networkSettings, networkSettingsFolder, userNetworkSettingsFileName, "UTF-8") == false)
-		{
-			return false;
-		}
-		//TODO: 解析networkSettings--更新到gNetworkRulesHash和userNetworkRulesHashMap
-			
-		return true;
-		
-		
-	}
-	
-	//TODO: 根据用户ID和name获取用户的网络限制配置信息
-	private String getUserNetworkSettings(Integer userId) 
-	{
-		String networkSettingsFolder = docSysIniPath + "userNetworkSettings/";
-		String userNetworkSettingsFileName = userId + "_NetworkSettings.txt";
-		if(FileUtil.isFileExist(networkSettingsFolder + userNetworkSettingsFileName) == false)
-		{
-			return null;
-		}
-		String networkSettings = FileUtil.readDocContentFromFile(networkSettingsFolder, userNetworkSettingsFileName, "UTF-8");
-		return networkSettings;
 	}
 
 	@RequestMapping(value="delUser")

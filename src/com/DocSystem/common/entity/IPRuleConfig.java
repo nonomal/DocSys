@@ -3,6 +3,7 @@ package com.DocSystem.common.entity;
 import java.util.ArrayList;
 import java.util.List;
 
+import com.DocSystem.common.BaseFunction;
 import com.DocSystem.common.Log;
 
 public class IPRuleConfig 
@@ -47,8 +48,18 @@ public class IPRuleConfig
 		//192.168.3.*		//通配符
 		//192.168.3-10.*	//范围+通配符
 		Log.debug("parseIPRuleConfig() iPRuleConfigStr【" + iPRuleConfigStr + "】");
+		IPRuleConfig ipRuleConfig = null;
+		
+		//TODO: 如果ipRuleConfigStr在globalIPRuleConfigMap已存在直接返回
+		ipRuleConfig = BaseFunction.globalIPRuleConfigMap.get(iPRuleConfigStr);
+		if(ipRuleConfig != null)
+		{
+			return ipRuleConfig;
+		}
+		
+		
 		String [] tempStr = iPRuleConfigStr.split("\\.");
-		IPRuleConfig ipRuleConfig = new IPRuleConfig();
+		ipRuleConfig = new IPRuleConfig();
 		//TODO: 我假设已经检查过规则
 		for(int i=0; i<tempStr.length; i++)
 		{
@@ -61,6 +72,9 @@ public class IPRuleConfig
 			Log.debug("parseIPRuleConfig() rangeStr【" + tempStr[i] + "】 range【" +range[0]+ "," + range[1] + "】");
 			ipRuleConfig.rangeList.add(range);
 		}
+		
+		//TODO: add to globalIPRuleConfigMap
+		BaseFunction.globalIPRuleConfigMap.put(iPRuleConfigStr, ipRuleConfig);
 		return ipRuleConfig;
 	}
 
