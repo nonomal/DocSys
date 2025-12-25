@@ -2051,11 +2051,23 @@ public class ManageController extends BaseController{
 		QueryResult queryResult = new QueryResult();
 		List <User> UserList = getUserListOnPage(user, pageIndex, pageSize, queryResult);
 		
+		//TODO: 获取用户可访问网络配置
+		for(User tempUser : UserList)
+		{
+			tempUser.networkSettings = getUserNetworkSettings(tempUser);
+		}
+		
 		rt.setData(UserList);
 		rt.setDataEx(queryResult.total);
 		writeJson(rt, response);
 	}
 	
+	//TODO: 根据用户ID和name获取用户的网络限制配置信息
+	private String getUserNetworkSettings(User tempUser) {
+		// TODO Auto-generated method stub
+		return null;
+	}
+
 	@RequestMapping(value="addFirstAdminUser")
 	public void addFirstAdminUser(User user, HttpSession session,HttpServletRequest request,HttpServletResponse response)
 	{

@@ -31,6 +31,7 @@
                   <th>RealName</th>
                   <th>Phone</th>
                   <th>Email</th>
+                  <th>Network Settings</th>
                   <th>Operation</th>
                 </tr>
                 </thead>
@@ -46,6 +47,7 @@
                     <td>{{value.realName}}</td>
                     <td>{{value.tel}}</td>
                     <td>{{value.email}}</td>
+                    <td>{{value.networkSettings}}</td>
                     <td class="edit">
                       <button onclick="delUserConfirm({{value.id}},{{value.pageIndex}},{{i}})" data-id="{{value.id}}" class="btn btn-lg btn-danger examine_ban"><i class="icon-remove"></i>Delete</button>
                       <button onclick="showEditUserPanel(event, {{value.id}},{{value.pageIndex}},{{i}})" data-id="{{value.id}}" class="btn btn-lg btn-warning examine_ban">Edit</button>

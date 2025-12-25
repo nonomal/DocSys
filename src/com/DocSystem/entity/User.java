@@ -47,6 +47,8 @@ public class User implements Serializable {
     public Integer docSysType;
 
 	public int isSalesServer;
+	
+	public String networkSettings;	//网络限制
     
     public Integer getId() {
         return id;

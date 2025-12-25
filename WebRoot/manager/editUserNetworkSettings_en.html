@@ -1,0 +1,33 @@
+<div class="form-horizontal">
+  <div class="form-group" hidden>
+    <label class="control-label col-lg-3" for="userId">ID</label>
+    <div class="col-lg-9">
+      <input type="text" class="form-control" id="userId" name="userId">
+    </div>
+  </div>
+  <!-- userName -->
+  <div class="form-group">
+    <label class="control-label col-lg-3" for="name">Account</label>
+    <div class="col-lg-9">
+      <input type="text" class="form-control" id="name" name="name" disabled="disabled">
+    </div>
+  </div>
+  
+  <!-- networkSettings -->
+  <div class="form-group">
+    <label class="control-label col-lg-3" for="networkSettings">Allowed Networks</label>
+    <div class="col-lg-9">
+      <input type="text" class="form-control" id="networkSettings" name="networkSettings">
+    </div>
+  </div>
+
+  <!-- Buttons -->
+  <div class="form-group">
+    <!-- Buttons -->
+    <div class="col-lg-offset-9 col-lg-2">
+      <button type="submit" class="btn btn-success" id="btn_editUserNetworkSettings" onclick="editUserNetworkSettings()">Save</button>
+    </div>
+  </div>
+</div>
+<script type="text/javascript" src="editUserNetworkSettings.js"></script>
+                   
