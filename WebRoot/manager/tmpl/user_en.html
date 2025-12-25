@@ -50,6 +50,7 @@
                       <button onclick="delUserConfirm({{value.id}},{{value.pageIndex}},{{i}})" data-id="{{value.id}}" class="btn btn-lg btn-danger examine_ban"><i class="icon-remove"></i>Delete</button>
                       <button onclick="showEditUserPanel(event, {{value.id}},{{value.pageIndex}},{{i}})" data-id="{{value.id}}" class="btn btn-lg btn-warning examine_ban">Edit</button>
                       <button onclick="showResetPwdPanel(event, {{value.id}},{{value.pageIndex}},{{i}})" data-id="{{value.id}}" class="btn btn-lg btn-warning examine_ban">Reset Password</button>
+                      <button onclick="showEditUserNetworkSettingsPanel(event, {{value.id}},{{value.pageIndex}},{{i}})" data-id="{{value.id}}" class="btn btn-lg btn-warning examine_ban">Network Settings</button>                      
                     </td>
                   </tr>
                 {{/each}}

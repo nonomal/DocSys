@@ -5021,6 +5021,31 @@ function showResetPwdPanel(e, userId, pageIndex, index)
 		}
 	}, null);	
 }
+function showEditUserNetworkSettingsPanel(e, userId, pageIndex, index)
+{
+	console.log("showEditUserNetworkSettingsPanel() userId:" + userId + " pageIndex:" + pageIndex);
+	gPageIndex = pageIndex;
+	
+	var Obj = e.target;
+	var trObj =  $(e.target).parent().parent();
+	var name = trObj.children("td:eq(2)").text();
+	var networkSettings = trObj.children("td:eq(8)").text();
+	
+	qiao.bs.dialog({
+		url: 'editUserNetworkSettings' + langExt + '.html',
+		title: _Lang('网络限制'),
+		msg: _Lang('页面正在加载，请稍等...'),
+		foot: false,
+		big: false,
+		callback: function(){
+			console.log("page loaded callback");
+			//Page Value Init
+			$("#userId").val(userId);
+			$("#name").val(name);
+			$("#networkSettings").val(networkSettings);
+		}
+	}, null);	
+}
 
 //证书安装
 var systemLicenses = {};
