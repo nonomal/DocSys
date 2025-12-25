@@ -110,6 +110,7 @@ function lang(str)
 		"登录失败"	: "Sign In Failed",
     	"获取用户信息失败" : "Failed to get user information",
     	"用户名或密码错误！" : "Incorrect account or password!",
+    	"请在安全网络环境下访问!" : "You are not in safe network!",
 		
     	//退出登录
 		"退出登录失败" : "Sign Out Failed",
