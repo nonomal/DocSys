@@ -43,11 +43,4 @@
 		<nature>org.eclipse.jdt.core.javanature</nature>
 		<nature>org.eclipse.wst.jsdt.core.jsNature</nature>
 	</natures>
-	<linkedResources>
-		<link>
-			<name>office</name>
-			<type>2</type>
-			<location>D:/Dev/DocSysOfficeProject/src</location>
-		</link>
-	</linkedResources>
 </projectDescription>
