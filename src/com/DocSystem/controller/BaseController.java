@@ -23399,7 +23399,9 @@ public class BaseController  extends BaseFunction{
 	            
 	        Project prj = new Project();
 	        Zip zip = new Zip();
-	        zip.setEncoding("gbk"); //文件名的编码格式，默认是运行平台使用的编码格式，会导致压缩后的文件在其他平台上打开乱码
+	        //动态设置编码
+	        FileUtil.setEncodding(zip);
+	        
 	        zip.setProject(prj);    
 	        zip.setDestFile(zipFile);    
 	        FileSet fileSet = new FileSet();    

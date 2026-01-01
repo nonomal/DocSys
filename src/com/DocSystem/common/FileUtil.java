@@ -1320,7 +1320,10 @@ public class FileUtil {
             
         Project prj = new Project();    
         Zip zip = new Zip();    
-        zip.setEncoding("gbk");	//文件名的编码格式，默认是运行平台使用的编码格式，会导致压缩后的文件在其他平台上打开
+
+        //动态设置编码
+        setEncodding(zip);
+
         zip.setProject(prj);    
         zip.setDestFile(zipFile);    
         FileSet fileSet = new FileSet();    
@@ -1344,7 +1347,10 @@ public class FileUtil {
     	
         Project prj = new Project();    
         Zip zip = new Zip();    
-        zip.setEncoding("gbk");	//文件名的编码格式，默认是运行平台使用的编码格式，会导致压缩后的文件在其他平台上打开
+
+        //动态设置编码
+        setEncodding(zip);
+        
         zip.setProject(prj);    
         zip.setDestFile(zipFile);    
         
@@ -1375,7 +1381,27 @@ public class FileUtil {
         return false;
     }
     
-    /***** compress with 7Z *****/
+    public static void setEncodding(Zip zip) 
+    {
+        // 动态选择编码
+        String systemEncoding = System.getProperty("sun.jnu.encoding", "UTF-8");
+        String fileEncoding = System.getProperty("file.encoding", "UTF-8");
+        // 优先使用系统文件编码
+        if ("GBK".equalsIgnoreCase(fileEncoding) || "GB2312".equalsIgnoreCase(fileEncoding)) 
+        {
+            zip.setEncoding("GBK");
+        }
+        else 
+        {
+            zip.setEncoding("UTF-8");
+        }
+        
+        Log.debug("使用编码：" + zip.getEncoding() + 
+                  ", 系统编码：" + systemEncoding + 
+                  ", 文件编码：" + fileEncoding);
+    }
+
+	/***** compress with 7Z *****/
     public static boolean compressWith7z(String inputFile, String outputFile) 
     {
     	boolean ret = false;
