@@ -2666,7 +2666,7 @@ public class BaseController  extends BaseFunction{
 			}
 		}
 		//开始压缩
-		if(FileUtil.compressWithZip(srcParentPath + dirName,dstParentPath + zipFileName) == true)
+		if(FileUtil.compressWithZip(srcParentPath + dirName, dstParentPath + zipFileName, systemCompressEncoding) == true)
 		{
 			Log.debug("压缩完成！");	
 		}
@@ -23400,7 +23400,7 @@ public class BaseController  extends BaseFunction{
 	        Project prj = new Project();
 	        Zip zip = new Zip();
 	        //动态设置编码
-	        FileUtil.setEncodding(zip);
+	        FileUtil.setEncodding(zip, systemCompressEncoding);
 	        
 	        zip.setProject(prj);    
 	        zip.setDestFile(zipFile);    

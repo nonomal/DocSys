@@ -316,6 +316,14 @@ public class BaseFunction{
 	//集群心跳任务HashMap
 	protected static ConcurrentHashMap<Long, GenericTask> clusterBeatTaskHashMap = new ConcurrentHashMap<Long, GenericTask>();
 
+	//压缩时使用文件名的字符编码，默认使用GBK
+	//	ZIP规范规定：
+	//	原始ZIP规范：文件名应使用IBM Code Page 437（DOS Latin US）
+	//	没有EFS标志时：应使用操作系统的默认本地编码
+	//	有EFS标志时：应使用UTF-8编码
+	//  所以理论上只要设置了EFS标志（UTF-8编码），那么理论上在所有系统上都能正确被解压，所以这里默认使用UTF-8格式
+	protected static String systemCompressEncoding = "UTF-8";
+	
 	//businessChannel
 	protected static Channel channel = null;
 	
@@ -340,6 +348,7 @@ public class BaseFunction{
     	initLdapConfig();
     	intSystemAllowedNetworkConfig();
     	initLLMConfig();
+    	initSystemCompressEncoding();
 		serverHost = getServerHost();
 		clusterServerUrl = getClusterServerUrl();
 
@@ -2460,8 +2469,29 @@ public class BaseFunction{
 		}
 	}
 	
+	//默认的压缩使用的文件名编码
+	protected static void initSystemCompressEncoding() 
+	{
+		Log.debug("initLLMConfig() ");
+		String value = ReadProperties.getValue(docSysIniPath + "docSysConfig.properties", "systemCompressEncoding");
+		if(value != null)
+		{
+	        //系统理论上支持两种编码格式
+	        if ("GBK".equalsIgnoreCase(value) || "GB2312".equalsIgnoreCase(value)) 
+	        {
+	        	systemCompressEncoding = "GBK";
+	        }
+	        else 
+	        {
+	        	systemCompressEncoding = "UTF-8";
+	        }
+		}
+		Log.debug("initSystemCompressEncoding() systemCompressEncoding【" + systemCompressEncoding + "】");
+	}
+	
 	//LLM
-	protected static void initLLMConfig() {
+	protected static void initLLMConfig() 
+	{
 		Log.debug("initLLMConfig() ");
 		String value = ReadProperties.getValue(docSysIniPath + "docSysConfig.properties", "llmConfig");
 		if(value != null)

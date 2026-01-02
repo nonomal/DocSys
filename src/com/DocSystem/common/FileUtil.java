@@ -1309,7 +1309,8 @@ public class FileUtil {
 	}
 
 	/***** compress with Zip *****/
-    public static boolean compressWithZip(String srcPathName,String finalFile) {
+    public static boolean compressWithZip(String srcPathName, String finalFile, String encoding) 
+    {
     	File zipFile = new File(finalFile);	//finalFile
     	
         File srcdir = new File(srcPathName); //srcFile or Dir
@@ -1322,7 +1323,7 @@ public class FileUtil {
         Zip zip = new Zip();    
 
         //动态设置编码
-        setEncodding(zip);
+        setEncodding(zip, encoding);
 
         zip.setProject(prj);    
         zip.setDestFile(zipFile);    
@@ -1342,14 +1343,15 @@ public class FileUtil {
     }
     
 	/***** compress with Zip *****/
-    public static boolean compressMultiFolderWithZip(List<String> folderList, String finalFile) {
+    public static boolean compressMultiFolderWithZip(List<String> folderList, String finalFile, String encoding) 
+    {
     	File zipFile = new File(finalFile);	//finalFile
     	
         Project prj = new Project();    
         Zip zip = new Zip();    
 
         //动态设置编码
-        setEncodding(zip);
+        setEncodding(zip, encoding);
         
         zip.setProject(prj);    
         zip.setDestFile(zipFile);    
@@ -1381,24 +1383,36 @@ public class FileUtil {
         return false;
     }
     
-    public static void setEncodding(Zip zip) 
+    public static void setEncodding(Zip zip, String encoding) 
     {
-        // 动态选择编码
-        String systemEncoding = System.getProperty("sun.jnu.encoding", "UTF-8");
-        String fileEncoding = System.getProperty("file.encoding", "UTF-8");
-        // 优先使用系统文件编码
-        if ("GBK".equalsIgnoreCase(fileEncoding) || "GB2312".equalsIgnoreCase(fileEncoding)) 
-        {
-            zip.setEncoding("GBK");
-        }
-        else 
-        {
-            zip.setEncoding("UTF-8");
-        }
-        
-        Log.debug("使用编码：" + zip.getEncoding() + 
-                  ", 系统编码：" + systemEncoding + 
-                  ", 文件编码：" + fileEncoding);
+    	if(encoding == null)
+    	{
+	        // 动态选择编码
+	        String systemEncoding = System.getProperty("sun.jnu.encoding", "UTF-8");
+	        String fileEncoding = System.getProperty("file.encoding", "UTF-8");
+	        // 优先使用系统文件编码
+	        if ("GBK".equalsIgnoreCase(fileEncoding) || "GB2312".equalsIgnoreCase(fileEncoding)) 
+	        {
+	            zip.setEncoding("GBK");
+	            zip.setComment("GBK");
+	        }
+	        else 
+	        {
+	            zip.setEncoding("UTF-8");
+	            zip.setComment("UTF-8");
+	        }
+	        
+	        Log.debug("使用编码：" + zip.getEncoding() + 
+	                  ", 系统编码：" + systemEncoding + 
+	                  ", 文件编码：" + fileEncoding);
+    	}
+    	else
+    	{
+    		//TODO: 使用用户指定的字符编码
+	        Log.debug("使用编码：" + encoding ); 
+            zip.setEncoding(encoding);
+            zip.setComment(encoding);
+    	}
     }
 
 	/***** compress with 7Z *****/
