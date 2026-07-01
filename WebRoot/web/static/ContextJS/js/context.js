@@ -64,9 +64,12 @@ var context = context || (function () {
 					linkTarget = ' target="'+data[i].target+'"';
 				}
 				if (typeof data[i].subMenu !== 'undefined') {
-					$sub = ('<li class="dropdown-submenu"><a tabindex="-1" href="' + data[i].href + '">' + data[i].text + '</a></li>');
+					$sub = $('<li class="dropdown-submenu"><a tabindex="-1" href="' + data[i].href + '">' + data[i].text + '</a></li>');
 				} else {
 					$sub = $('<li><a tabindex="-1" href="' + data[i].href + '"'+linkTarget+'>' + data[i].text + '</a></li>');
+				}
+				if (typeof data[i].cssClass !== 'undefined') {
+					$sub.addClass(data[i].cssClass);
 				}
 				if (typeof data[i].action !== 'undefined') {
 					var actiond = new Date(),

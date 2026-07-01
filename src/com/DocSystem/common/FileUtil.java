@@ -938,6 +938,16 @@ public class FileUtil {
     	String suffix = filePath.substring(index + 1);
     	return suffix;
     }
+
+	public static String getFileNameWithoutSuffix(String filePath)
+	{
+		int index = filePath.lastIndexOf(".");
+		if(index == -1)
+		{
+			return filePath;
+		}
+		return filePath.substring(0, index);
+	}
     
 	public static boolean isOfficeFile(String name) 
 	{

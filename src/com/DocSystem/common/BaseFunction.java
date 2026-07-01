@@ -6442,6 +6442,41 @@ public class BaseFunction{
 		Log.debug("convertDocToPdfFile() return pdfDocInfo:" + doc.getLocalRootPath() + doc.getPath() + doc.getName());		
 		return doc;
 	}
+
+	protected Doc convertDocToSaveAsDoc(Repos repos, Doc doc, String targetExt)
+	{
+		if(doc == null || targetExt == null || targetExt.isEmpty())
+		{
+			return null;
+		}
+
+		String sourceExt = FileUtil.getFileSuffix(doc.getName());
+		sourceExt = FileUtil.convertWpsSuffixToOfficeSuffix(sourceExt);
+		targetExt = FileUtil.convertWpsSuffixToOfficeSuffix(targetExt.toLowerCase());
+		if(sourceExt == null || sourceExt.isEmpty() || targetExt.equals(sourceExt))
+		{
+			return null;
+		}
+
+		String outputName = FileUtil.getFileNameWithoutSuffix(doc.getName()) + "." + targetExt;
+		String outputPath = Path.getReposTmpPathForPrint(repos, doc.getPath(), outputName);
+		String inputPath = doc.getLocalRootPath() + doc.getPath() + doc.getName();
+
+		if(channel.convertDocToTargetFormat(doc, inputPath, outputPath, outputName, targetExt) == false)
+		{
+			Log.info("convertDocToSaveAsDoc() convertDocToTargetFormat failed source:" + doc.getName() + " targetExt:" + targetExt);
+			return null;
+		}
+
+		Doc saveAsDoc = new Doc();
+		saveAsDoc.setVid(doc.getVid());
+		saveAsDoc.setPath("");
+		saveAsDoc.setName(outputName);
+		saveAsDoc.setLocalRootPath(outputPath);
+		saveAsDoc.setShareId(doc.getShareId());
+		saveAsDoc.setType(1);
+		return saveAsDoc;
+	}
 	
 	public String generatePdfFileWithDocList(Repos repos, Doc tmpDoc, List<Doc> docList) 
 	{

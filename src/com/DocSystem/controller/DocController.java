@@ -4669,12 +4669,13 @@ public class DocController extends BaseController{
 			Integer shareId,
 			String urlStyle,
 			String preview,
+			String saveAsExt,
 			String printList,		//文件列表（用于打印需求）
 			Integer videoConvertType,
 			HttpSession session,HttpServletRequest request,HttpServletResponse response)
 	{
 		Log.infoHead("*************** getDocFileLink [" + path + name + "] ********************");		
-		Log.info("getDocFileLink reposId:" + reposId + " path:" + path + " name:" + name + " shareId:" + shareId + " commitId:" + commitId + " preview:" + preview);
+		Log.info("getDocFileLink reposId:" + reposId + " path:" + path + " name:" + name + " shareId:" + shareId + " commitId:" + commitId + " preview:" + preview + " saveAsExt:" + saveAsExt);
 
 		//注意该接口支持name是空的的情况
 		if(path == null)
@@ -4710,7 +4711,12 @@ public class DocController extends BaseController{
 		Doc doc = buildBasicDoc(reposId, null, null, reposPath, path, name, null, null, true, localRootPath, localVRootPath, null, null);
 		
 		//TODO: 根据用户的权限获取真实的preview值，前端需要该值进行逻辑判断
-		preview = checkAndGetRealPreivewValue(preview, repos, doc, reposAccess, rt);
+		String previewForCheck = preview;
+		if(saveAsExt != null && saveAsExt.isEmpty() == false)
+		{
+			previewForCheck = "print";
+		}
+		preview = checkAndGetRealPreivewValue(previewForCheck, repos, doc, reposAccess, rt);
 		if(preview == null)
 		{
 			Log.info("用户预览权限检查失败");
@@ -4845,6 +4851,33 @@ public class DocController extends BaseController{
 			
 			tmpDoc = buildBasicDoc(reposId, doc.getDocId(), doc.getPid(), reposPath, path, name, doc.getLevel(), 1, true, tempLocalRootPath, localVRootPath, null, null);	
 			tmpDoc.setShareId(shareId);
+		}
+
+		if(saveAsExt != null && saveAsExt.isEmpty() == false)
+		{
+			Doc saveAsDoc = convertDocToSaveAsDoc(repos, tmpDoc, saveAsExt);
+			if(saveAsDoc == null)
+			{
+				Log.debug("getDocFileLink() convertDocToSaveAsDoc failed saveAsExt:" + saveAsExt);
+				rt.setError("当前文件不支持另存为 " + saveAsExt);
+				writeJson(rt, response);
+				return;
+			}
+
+			String authCode = addDocDownloadAuthCode(reposAccess, null);
+			String saveAsLink = buildDownloadDocLink(saveAsDoc, authCode, urlStyle, 1, rt);
+			if(saveAsLink == null)
+			{
+				Log.debug("getDocFileLink() buildDownloadDocLink failed for saveAsExt:" + saveAsExt);
+				rt.setError("Failed to buildSaveAsFileLink");
+				writeJson(rt, response);
+				return;
+			}
+
+			rt.setData(saveAsLink);
+			rt.setDataEx("saveAs");
+			writeJson(rt, response);
+			return;
 		}
 		
 		String authCode = addDocDownloadAuthCode(reposAccess, null);

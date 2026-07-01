@@ -243,6 +243,9 @@ public interface Channel {
 	//Convert OfficeFile to pdf file
 	boolean convertOfficeToPdf(Doc doc, String localEntryPath, String dstPath, String dstName);
 
+	//Convert doc file to target format for save-as download
+	boolean convertDocToTargetFormat(Doc doc, String localEntryPath, String dstPath, String dstName, String targetExt);
+
 	//AIChat接口
 	String AIChat(AIChatRequest chatReq, LLMConfig llmConfig, ReturnAjax rt);
 }

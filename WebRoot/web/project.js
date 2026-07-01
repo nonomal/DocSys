@@ -2328,6 +2328,7 @@ function zTreeOnAsyncSuccess(event, treeId, treeNode, msg) {
 function zTreeBeforeRightClick(treeId, treeNode) {
 
 	curRightClickedTreeNode = treeNode;
+	updateSaveAsMenuDisplay(treeNode);
 	return true;
 };
 
@@ -3474,8 +3475,143 @@ function sc(obj,event){
 	event.stopPropagation();
 }
 
+var gSaveAsTargetMap = {
+	pdf: ["docx"],
+	doc: ["pdf"],
+	docx: ["pdf"],
+};
+
+function getSaveAsTargetList(node)
+{
+	if(!node || node == null || node.type != 1)
+	{
+		return [];
+	}
+
+	var sourceExt = getFileSuffix(node.name);
+	if(!sourceExt)
+	{
+		return [];
+	}
+
+	var targetList = gSaveAsTargetMap[sourceExt];
+	if(!targetList)
+	{
+		return [];
+	}
+	return targetList;
+}
+
+function updateSaveAsMenuDisplay(node)
+{
+	var targetList = getSaveAsTargetList(node);
+	var showPdf = targetList.indexOf("pdf") >= 0;
+	var showDocx = targetList.indexOf("docx") >= 0;
+
+	$(".save-as-target-pdf").toggle(showPdf);
+	$(".save-as-target-docx").toggle(showDocx);
+	$(".save-as-menu").toggle(targetList.length > 0);
+}
+
+function getDocSaveAsLink(docInfo, saveAsExt, successCallback, errorCallback, urlStyle)
+{
+	if(!docInfo || docInfo == null || docInfo.type != 1)
+	{
+		errorCallback && errorCallback(_Lang("请选择文件"));
+		return;
+	}
+
+	$.ajax({
+		url : "/DocSystem/Doc/getDocFileLink.do",
+		type : "post",
+		dataType : "json",
+		data : {
+			reposId: docInfo.vid,
+			path: docInfo.path,
+			name: docInfo.name,
+			commitId: docInfo.commitId,
+			historyType: docInfo.historyType,
+			shareId: docInfo.shareId,
+			authCode: docInfo.authCode,
+			urlStyle: urlStyle,
+			preview: "print",
+			saveAsExt: saveAsExt,
+		},
+		success : function (ret) {
+			console.log("getDocSaveAsLink ret", ret);
+			if( "ok" == ret.status )
+			{
+				successCallback && successCallback(buildFullLink(ret.data));
+			}
+			else
+			{
+				errorCallback && errorCallback(ret.msgInfo || _Lang("获取文件信息失败"));
+			}
+		},
+		error : function () {
+			errorCallback && errorCallback("服务器异常");
+		}
+	});
+}
+
+function saveDocAs(node, targetExt)
+{
+	if(!node || node == null)
+	{
+		showErrorMessage({
+	    		id: "idAlertDialog",	
+	    		title: _Lang("提示"),
+	    		okbtn: _Lang("确定"),
+	    		msg: _Lang("请选择文件或目录"),
+	    	});
+		return;
+	}
+
+	var targetList = getSaveAsTargetList(node);
+	if(targetList.indexOf(targetExt) < 0)
+	{
+		showErrorMessage({
+	    		id: "idAlertDialog",	
+	    		title: _Lang("提示"),
+	    		okbtn: _Lang("确定"),
+	    		msg: _Lang("当前文件不支持另存为"),
+	    	});
+		return;
+	}
+
+	getDocSaveAsLink(node, targetExt, function(fileLink){
+		window.open(fileLink);
+	}, function(msg){
+		showErrorMessage({
+	    		id: "idAlertDialog",	
+	    		title: _Lang("提示"),
+	    		okbtn: _Lang("确定"),
+	    		msg: _Lang("另存为失败") + " : " + msg,
+	    	});
+	}, "REST");
+}
+
+function buildSaveAsMenuItem(nodeGetter)
+{
+	return {
+		text: _Lang("另存为"),
+		cssClass: "save-as-menu",
+		subMenu: [
+			{text: "PDF", cssClass: "save-as-target-pdf", action: function(e){
+				e.preventDefault();
+				saveDocAs(nodeGetter(), "pdf");
+			}},
+			{text: "DOCX", cssClass: "save-as-target-docx", action: function(e){
+				e.preventDefault();
+				saveDocAs(nodeGetter(), "docx");
+			}},
+		]
+	};
+}
+
 function showContextMenu(obj,event){
 	event.stopPropagation();
+	updateSaveAsMenuDisplay(curRightClickedDocListNode);
 	var xOffset = 0;
 	if(gIsPC == false)
 	{
@@ -5069,6 +5205,9 @@ function contextMenuInit()
 							openInLocalApp(curRightClickedTreeNode);
 						}
 					},
+					buildSaveAsMenuItem(function(){
+						return curRightClickedTreeNode;
+					}),
 					{divider: true},
 					{text: _Lang('设置密码'), action: function(e){
 							e.preventDefault();
@@ -5529,6 +5668,9 @@ function contextMenuInit()
 							openInLocalApp(curRightClickedDocListNode);
 						}
 					},
+					buildSaveAsMenuItem(function(){
+						return curRightClickedDocListNode;
+					}),
 					{divider: true},					
 					{text: _Lang('设置密码'), action: function(e){
 							e.preventDefault();
@@ -5777,6 +5919,9 @@ function contextMenuInit()
 								openInLocalApp(curRightClickedDocListNode);
 							}
 						},
+						buildSaveAsMenuItem(function(){
+							return curRightClickedDocListNode;
+						}),
 						{divider: true},
 						{text: _Lang('设置密码'), action: function(e){
 								e.preventDefault();
@@ -5976,6 +6121,9 @@ function contextMenuInit()
 							openInLocalApp(gDocInfo);
 						}
 					},
+					buildSaveAsMenuItem(function(){
+						return gDocInfo;
+					}),
 					{divider: true},
 					{text: _Lang('设置密码'), action: function(e){
 							e.preventDefault();
@@ -6070,6 +6218,14 @@ function contextMenuInit()
 	}
 
 	context.settings({compress: true});
+
+	$(document).on('contextmenu', '#tree', function(){
+		updateSaveAsMenuDisplay(curRightClickedTreeNode);
+	});
+
+	$(document).on('contextmenu', '#docPreview', function(){
+		updateSaveAsMenuDisplay(gDocInfo);
+	});
 
 	$(document).on('mouseover', '.me-codesta', function(){
 		$('.finale h1:first').css({opacity:0});
