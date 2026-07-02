@@ -226,16 +226,42 @@ public class Log {
 		{
 			String timeStamp = DateFormat.dateTimeFormat(new Date());
 			System.out.println(timeStamp + " [error] " +content);
-			
+
 			String logFilePath = logFile;
 			if(logFilePath == null)
 			{
 				logFilePath = defaultLogFile;
 			}
-			
+
 			if(logFilePath != null)
 			{
 				toFile(timeStamp + " [error] " + content  + "\n", logFilePath);
+			}
+		}
+	}
+
+	//记录一条错误信息并附带异常堆栈（content + exception）
+	public static void error(String content, Throwable e) {
+		if(isLogEnable(error, allowAll))
+		{
+			String timeStamp = DateFormat.dateTimeFormat(new Date());
+			System.out.println(timeStamp + " [error] " + content);
+			if(e != null)
+			{
+				e.printStackTrace(System.out);
+			}
+
+			if(logFile != null)
+			{
+				StringBuilder sb = new StringBuilder();
+				sb.append(timeStamp + " [error] " + content + "\n");
+				if(e != null)
+				{
+					ByteArrayOutputStream baos = new ByteArrayOutputStream();
+					e.printStackTrace(new PrintStream(baos));
+					sb.append(baos.toString());
+				}
+				toFile(sb.toString(), logFile);
 			}
 		}
 	}

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <classpath>
-	<classpathentry kind="src" path="src"/>
+	<classpathentry excluding="com/DocSystem/websocket/office/test/tmp/|com/DocSystem/websocket/office/test/参照物/|com/DocSystem/websocket/office/test/测试文件/|com/DocSystem/websocket/office/src/com/DocSystem/websocket/office/test/tmp/TestPdfToDocxProd/|com/DocSystem/websocket/office/src/com/DocSystem/websocket/office/test/tmp/|com/DocSystem/websocket/office/docs/|com/DocSystem/websocket/office/src/com/DocSystem/websocket/office/test/|com/DocSystem/websocket/office/src/com/DocSystem/websocket/office/|com/DocSystem/websocket/office/src/com/DocSystem/websocket/|com/DocSystem/websocket/office/src/com/DocSystem/|com/DocSystem/websocket/office/src/com/|com/DocSystem/websocket/office/src/|com/DocSystem/websocket/office/test/bin/|com/DocSystem/websocket/office/test/tools/" kind="src" path="src"/>
 	<classpathentry exported="true" kind="con" path="org.eclipse.jst.j2ee.internal.web.container"/>
 	<classpathentry kind="con" path="org.eclipse.jst.j2ee.internal.module.container"/>
 	<classpathentry kind="con" path="com.genuitec.runtime.library/com.genuitec.generic_6.0">
