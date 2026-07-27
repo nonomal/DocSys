@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.docsys.agent.learning.repository.SkillMetadataRepository">
+
+    <resultMap id="SkillMetadataResultMap" type="com.docsys.agent.learning.entity.SkillMetadata">
+        <id property="id" column="id"/>
+        <result property="skillId" column="skill_id"/>
+        <result property="creatorId" column="creator_id"/>
+        <result property="creatorName" column="creator_name"/>
+        <result property="visibility" column="visibility"/>
+        <result property="allowedUserIds" column="allowed_user_ids"/>
+        <result property="isAdminSkill" column="is_admin_skill"/>
+        <result property="tenantId" column="tenant_id"/>
+        <result property="name" column="name"/>
+        <result property="category" column="category"/>
+        <result property="version" column="version"/>
+        <result property="filePath" column="file_path"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="updatedAt" column="updated_at"/>
+    </resultMap>
+
+    <insert id="insert" parameterType="com.docsys.agent.learning.entity.SkillMetadata" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO skill_metadata (
+            skill_id, creator_id, creator_name, visibility, allowed_user_ids,
+            is_admin_skill, tenant_id, name, category, version, file_path
+        ) VALUES (
+            #{skillId}, #{creatorId}, #{creatorName}, #{visibility}, #{allowedUserIds},
+            #{isAdminSkill}, #{tenantId}, #{name}, #{category}, #{version}, #{filePath}
+        )
+    </insert>
+
+    <update id="updateById" parameterType="com.docsys.agent.learning.entity.SkillMetadata">
+        UPDATE skill_metadata SET
+            visibility = #{visibility},
+            allowed_user_ids = #{allowedUserIds},
+            is_admin_skill = #{isAdminSkill},
+            tenant_id = #{tenantId},
+            name = #{name},
+            category = #{category},
+            version = #{version},
+            file_path = #{filePath}
+        WHERE id = #{id}
+    </update>
+
+    <select id="findBySkillId" resultMap="SkillMetadataResultMap">
+        SELECT * FROM skill_metadata WHERE skill_id = #{skillId}
+    </select>
+
+    <select id="findByCreatorId" resultMap="SkillMetadataResultMap">
+        SELECT * FROM skill_metadata WHERE creator_id = #{creatorId} ORDER BY created_at DESC
+    </select>
+
+    <select id="findByVisibility" resultMap="SkillMetadataResultMap">
+        SELECT * FROM skill_metadata WHERE visibility = #{visibility} ORDER BY created_at DESC
+    </select>
+
+    <!--
+        Find skills visible to a specific user:
+        1. Skills created by the user (creator)
+        2. PUBLIC skills
+        3. TENANT skills for the user's tenant
+    -->
+    <select id="findVisibleToUser" resultMap="SkillMetadataResultMap">
+        SELECT * FROM skill_metadata
+        WHERE creator_id = #{userId}
+           OR visibility = 'PUBLIC'
+           OR (visibility = 'TENANT' AND tenant_id = #{tenantId})
+        ORDER BY created_at DESC
+    </select>
+
+    <select id="findByAllowedUserId" resultMap="SkillMetadataResultMap">
+        SELECT * FROM skill_metadata
+        WHERE JSON_CONTAINS(allowed_user_ids, '"' + #{userId} + '"')
+        ORDER BY created_at DESC
+    </select>
+
+    <delete id="deleteBySkillId">
+        DELETE FROM skill_metadata WHERE skill_id = #{skillId}
+    </delete>
+
+    <select id="findAdminSkills" resultMap="SkillMetadataResultMap">
+        SELECT * FROM skill_metadata WHERE is_admin_skill = true ORDER BY created_at DESC
+    </select>
+
+    <!--
+        Check if user has access to a specific skill:
+        - User is the creator
+        - Skill is PUBLIC
+        - Skill is TENANT and user belongs to the same tenant
+        - User is in the allowed_user_ids list
+    -->
+    <select id="findAccessibleSkill" resultMap="SkillMetadataResultMap">
+        SELECT * FROM skill_metadata
+        WHERE skill_id = #{skillId}
+          AND (
+              creator_id = #{userId}
+              OR visibility = 'PUBLIC'
+              OR (visibility = 'TENANT' AND tenant_id = #{tenantId})
+              OR JSON_CONTAINS(allowed_user_ids, '"' + #{userId} + '"')
+          )
+        LIMIT 1
+    </select>
+
+</mapper>

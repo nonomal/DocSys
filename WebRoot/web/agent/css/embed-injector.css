@@ -1,0 +1,60 @@
+/**
+ * DocSys Agent — Embed Injector Theme
+ *
+ * Theme overrides matching DocSystem's design tokens + CSS conflict shields.
+ * Loads after chat-widget.css to override DSA styles with DocSystem purple (#563d7c).
+ */
+
+/* DocSystem Purple Theme Variables */
+:root {
+  --dsa-primary: #563d7c;
+  --dsa-primary-dark: #463062;
+  --dsa-header-bg: #563d7c;
+  --dsa-header-text: #ffffff;
+  --dsa-font: 'Verdana', 'Lantinghei SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+}
+
+/* CSS Conflict Shields — prevent DocSystem / Bootstrap styles from hiding the widget */
+#dsa-widget,
+#dsa-collapsed-btn {
+  display: flex !important;
+  visibility: visible !important;
+}
+
+#dsa-widget {
+  z-index: 2147483647 !important;
+  overflow: visible !important;
+  clip: auto !important;
+  pointer-events: auto !important;
+}
+
+/* Ensure collapsed button stays above all DocSystem elements */
+#dsa-collapsed-btn {
+  z-index: 2147483647 !important;
+  pointer-events: auto !important;
+}
+
+/* Accessibility: focus ring */
+#dsa-collapsed-btn:focus-visible,
+#dsa-widget button:focus-visible {
+  outline: 2px solid var(--dsa-primary) !important;
+  outline-offset: 2px !important;
+}
+
+/* Responsive: shrink on small screens */
+@media (max-width: 768px) {
+  #dsa-widget {
+    width: 90vw !important;
+    max-height: 60vh !important;
+    left: 5vw !important;
+    right: auto !important;
+    bottom: 80px !important;
+    top: auto !important;
+  }
+}
+
+/* Error toast animation */
+@keyframes dsa-slide-in {
+  from { opacity: 0; transform: translateX(20px); }
+  to   { opacity: 1; transform: translateX(0); }
+}

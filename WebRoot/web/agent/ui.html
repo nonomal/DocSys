@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DocSys AI Agent</title>
+    
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    
+    <!-- Custom Styles -->
+    <link rel="stylesheet" href="/agent/css/styles.css">
+</head>
+<body>
+    <div id="app">
+        <!-- Login Screen -->
+        <div id="login-screen" class="login-container">
+            <div class="login-box">
+                <div class="login-header">
+                    <div class="logo">
+                        <span class="logo-icon">🤖</span>
+                        <span class="logo-text">DocSys AI</span>
+                    </div>
+                    <p class="login-subtitle">智能文档管理系统</p>
+                </div>
+                
+                <form id="login-form" class="login-form">
+                    <div class="form-group">
+                        <input 
+                            id="username" 
+                            type="text" 
+                            placeholder="用户名"
+                            value="admin"
+                            autocomplete="username"
+                        >
+                    </div>
+                    <div class="form-group">
+                        <input 
+                            id="password" 
+                            type="password" 
+                            placeholder="密码"
+                            value="admin2026"
+                            autocomplete="current-password"
+                        >
+                    </div>
+                    <button 
+                        type="submit" 
+                        id="login-btn"
+                        class="login-btn"
+                    >
+                        登录
+                    </button>
+                </form>
+                
+                <div class="login-tip">
+                    <span>默认账号: admin / admin2026</span>
+                </div>
+            </div>
+            
+            <!-- Background Effects -->
+            <div class="bg-gradient"></div>
+            <div class="bg-grid"></div>
+        </div>
+        
+        <!-- Main App -->
+        <div id="main-app" class="app-container" style="display: none;">
+            <!-- Sidebar -->
+            <aside class="sidebar">
+                <div class="sidebar-header">
+                    <div class="logo-sm">
+                        <span class="logo-icon">🤖</span>
+                        <span>DocSys AI</span>
+                    </div>
+                </div>
+                
+                <div class="sidebar-content">
+                    <div class="session-section">
+                        <div class="section-header">
+                            <span>会话</span>
+                            <button id="new-session-btn" class="icon-btn" title="新建会话">+</button>
+                        </div>
+                        
+                        <div id="session-list" class="session-list">
+                            <!-- Sessions will be rendered here -->
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="sidebar-footer">
+                    <button id="skills-btn" class="text-btn">
+                        <span>🔌</span> 技能市场
+                    </button>
+                    <button id="settings-btn" class="text-btn">
+                        <span>⚙️</span> 设置
+                    </button>
+                </div>
+            </aside>
+            
+            <!-- Main Content -->
+            <main class="main-content">
+                <!-- Chat Area -->
+                <div class="chat-container">
+                    <!-- Messages -->
+                    <div id="messages-area" class="messages-area">
+                        <div id="empty-state" class="empty-state">
+                            <div class="empty-icon">💬</div>
+                            <h3>开始新对话</h3>
+                            <p>发送消息开始与 AI 助手交流</p>
+                            <div class="quick-commands">
+                                <span class="quick-cmd" data-cmd="list repos">列出仓库</span>
+                                <span class="quick-cmd" data-cmd="whoami">查看用户</span>
+                                <span class="quick-cmd" data-cmd="help">帮助</span>
+                            </div>
+                        </div>
+                        
+                        <!-- Messages will be rendered here -->
+                    </div>
+                    
+                    <!-- Input Area -->
+                    <div class="input-area">
+                        <div class="input-container">
+                            <textarea
+                                id="message-input"
+                                placeholder="发送消息... (Enter 发送, Shift+Enter 换行)"
+                                rows="1"
+                                disabled
+                            ></textarea>
+                            <button 
+                                id="send-btn"
+                                class="send-btn"
+                                disabled
+                            >
+                                ➤
+                            </button>
+                        </div>
+                        <div class="input-tip">
+                            <span>输入 help 查看可用命令</span>
+                        </div>
+                    </div>
+                </div>
+            </main>
+        </div>
+        
+        <!-- Skills Dialog -->
+        <div id="skills-dialog" class="dialog-overlay" style="display: none;">
+            <div class="dialog">
+                <div class="dialog-header">
+                    <h2>技能市场</h2>
+                    <button class="close-btn" id="close-skills">×</button>
+                </div>
+                <div class="dialog-content">
+                    <div id="skills-list" class="skills-grid">
+                        <!-- Skills will be rendered here -->
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Settings Dialog -->
+        <div id="settings-dialog" class="dialog-overlay" style="display: none;">
+            <div class="dialog">
+                <div class="dialog-header">
+                    <h2>设置</h2>
+                    <button class="close-btn" id="close-settings">×</button>
+                </div>
+                <div class="dialog-content">
+                    <div class="form-group">
+                        <label>主题</label>
+                        <select id="theme-select">
+                            <option value="dark">深色</option>
+                            <option value="light">浅色</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>字体大小</label>
+                        <input type="range" id="font-size" min="12" max="20" value="14">
+                        <span id="font-size-value">14px</span>
+                    </div>
+                    <hr>
+                    <h3>LLM 配置</h3>
+                    <div class="form-group">
+                        <label>模型</label>
+                        <input type="text" id="llm-model" placeholder="gpt-3.5-turbo">
+                    </div>
+                    <div class="form-group">
+                        <label>API Endpoint</label>
+                        <input type="text" id="llm-endpoint" placeholder="https://api.example.com/v1">
+                    </div>
+                    <div class="form-group">
+                        <label>API Key</label>
+                        <input type="password" id="llm-apikey" placeholder="sk-...">
+                    </div>
+                </div>
+                <div class="dialog-footer">
+                    <button class="btn" id="cancel-settings">取消</button>
+                    <button class="btn btn-primary" id="save-settings">保存</button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Toast Container -->
+        <div id="toast-container"></div>
+    </div>
+
+    <!-- App Script -->
+    <script src="/agent/js/app-vanilla.js"></script>
+</body>
+</html>

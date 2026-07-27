@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DocSys Agent</title>
+  <link rel="stylesheet" href="/agent/css/chat-widget.css">
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      overflow: hidden;
+      background: transparent;
+    }
+  </style>
+</head>
+<body>
+  <!-- Widget DOM injected by chat-widget.js -->
+  <script src="/agent/js/chat-widget.js"></script>
+  <script>
+    // Auto-initialize as standalone page
+    document.addEventListener('DOMContentLoaded', function () {
+      DSAWidget.init({
+        apiBase: '/DocSystem/agent',
+        collapsed: false,
+        welcomeMessage: '你好！我是 DocSys Agent。有什么可以帮助你的吗？'
+      });
+    });
+  </script>
+</body>
+</html>

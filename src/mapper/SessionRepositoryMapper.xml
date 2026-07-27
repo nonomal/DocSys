@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.docsys.agent.session.SessionRepository">
+
+    <resultMap id="SessionEntityResultMap" type="com.docsys.agent.session.SessionEntity">
+        <id property="id" column="id"/>
+        <result property="sessionId" column="session_id"/>
+        <result property="username" column="username"/>
+        <result property="jsessionid" column="jsessionid"/>
+        <result property="tenantId" column="tenant_id"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="lastActive" column="last_active"/>
+        <result property="expiresAt" column="expires_at"/>
+        <result property="metadata" column="metadata"/>
+    </resultMap>
+
+    <select id="selectBySessionId" resultMap="SessionEntityResultMap">
+        SELECT * FROM agent_sessions WHERE session_id = #{sessionId}
+    </select>
+
+    <select id="selectByUsername" resultMap="SessionEntityResultMap">
+        SELECT * FROM agent_sessions WHERE username = #{username}
+    </select>
+
+    <insert id="insert" parameterType="com.docsys.agent.session.SessionEntity" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO agent_sessions (session_id, username, jsessionid, tenant_id, created_at, last_active, expires_at, metadata)
+        VALUES (#{sessionId}, #{username}, #{jsessionid}, #{tenantId}, #{createdAt}, #{lastActive}, #{expiresAt}, #{metadata})
+    </insert>
+
+    <update id="updateLastActive">
+        UPDATE agent_sessions SET last_active = #{now} WHERE session_id = #{sessionId}
+    </update>
+
+    <delete id="deleteBySessionId">
+        DELETE FROM agent_sessions WHERE session_id = #{sessionId}
+    </delete>
+
+    <delete id="deleteInactiveBefore">
+        DELETE FROM agent_sessions WHERE last_active &lt; #{cutoff}
+    </delete>
+
+    <select id="count" resultType="long">
+        SELECT COUNT(*) FROM agent_sessions
+    </select>
+
+</mapper>

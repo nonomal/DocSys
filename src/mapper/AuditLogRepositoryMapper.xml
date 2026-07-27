@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.docsys.agent.repository.AuditLogRepository">
+
+    <resultMap id="AuditLogEntityResultMap" type="com.docsys.agent.entity.AuditLogEntity">
+        <id property="id" column="id"/>
+        <result property="userId" column="user_id"/>
+        <result property="sessionId" column="session_id"/>
+        <result property="operation" column="operation"/>
+        <result property="operationParams" column="operation_params"/>
+        <result property="status" column="status"/>
+        <result property="confirmToken" column="confirm_token"/>
+        <result property="clientIp" column="client_ip"/>
+        <result property="traceId" column="trace_id"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="completedAt" column="completed_at"/>
+        <result property="resultMessage" column="result_message"/>
+    </resultMap>
+
+    <select id="findByConfirmToken" resultMap="AuditLogEntityResultMap">
+        SELECT * FROM audit_logs WHERE confirm_token = #{confirmToken}
+    </select>
+
+    <select id="findByUserIdOrderByCreatedAtDesc" resultMap="AuditLogEntityResultMap">
+        SELECT * FROM audit_logs WHERE user_id = #{userId} ORDER BY created_at DESC
+    </select>
+
+    <select id="findBySessionIdOrderByCreatedAtDesc" resultMap="AuditLogEntityResultMap">
+        SELECT * FROM audit_logs WHERE session_id = #{sessionId} ORDER BY created_at DESC
+    </select>
+
+    <select id="findByUserId" resultMap="AuditLogEntityResultMap">
+        SELECT * FROM audit_logs WHERE user_id = #{userId} ORDER BY created_at DESC LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="findByOperation" resultMap="AuditLogEntityResultMap">
+        SELECT * FROM audit_logs WHERE operation = #{operation} ORDER BY created_at DESC LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="findByStatus" resultMap="AuditLogEntityResultMap">
+        SELECT * FROM audit_logs WHERE status = #{status} ORDER BY created_at DESC
+    </select>
+
+    <select id="findAll" resultMap="AuditLogEntityResultMap">
+        SELECT * FROM audit_logs ORDER BY created_at DESC LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <update id="updateStatusByConfirmToken">
+        UPDATE audit_logs
+        SET status = #{status}, completed_at = #{completedAt}, result_message = #{result}
+        WHERE confirm_token = #{confirmToken}
+    </update>
+
+    <delete id="deleteOldLogs">
+        DELETE FROM audit_logs WHERE status IN ('COMPLETED','FAILED') AND created_at &lt; #{cutoff}
+    </delete>
+
+    <insert id="insert" parameterType="com.docsys.agent.entity.AuditLogEntity" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO audit_logs (user_id, session_id, operation, operation_params, status, confirm_token, client_ip, trace_id, created_at, completed_at, result_message)
+        VALUES (#{userId}, #{sessionId}, #{operation}, #{operationParams}, #{status}, #{confirmToken}, #{clientIp}, #{traceId}, #{createdAt}, #{completedAt}, #{resultMessage})
+    </insert>
+
+    <delete id="deleteById">
+        DELETE FROM audit_logs WHERE id = #{id}
+    </delete>
+
+    <select id="count" resultType="long">
+        SELECT COUNT(*) FROM audit_logs
+    </select>
+
+</mapper>

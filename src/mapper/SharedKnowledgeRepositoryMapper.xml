@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.docsys.agent.learning.repository.SharedKnowledgeRepository">
+
+    <resultMap id="SharedKnowledgeResultMap" type="com.docsys.agent.learning.entity.SharedKnowledge">
+        <id property="id" column="id"/>
+        <result property="tenantId" column="tenant_id"/>
+        <result property="authorId" column="author_id"/>
+        <result property="taskType" column="task_type"/>
+        <result property="title" column="title"/>
+        <result property="content" column="content"/>
+        <result property="tags" column="tags"/>
+        <result property="visibility" column="visibility"/>
+        <result property="upvotes" column="upvotes"/>
+        <result property="downvotes" column="downvotes"/>
+        <result property="usageCount" column="usage_count"/>
+        <result property="avgRating" column="avg_rating"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="updatedAt" column="updated_at"/>
+    </resultMap>
+
+    <select id="findByTenantId" resultMap="SharedKnowledgeResultMap">
+        SELECT * FROM shared_knowledge WHERE tenant_id = #{tenantId}
+    </select>
+
+    <select id="findVisibleToTenant" resultMap="SharedKnowledgeResultMap">
+        SELECT * FROM shared_knowledge
+        WHERE visibility = 'PUBLIC' OR tenant_id = #{tenantId}
+        ORDER BY usage_count DESC
+        LIMIT #{limit}
+    </select>
+
+    <select id="findByTaskTypeAndVisibility" resultMap="SharedKnowledgeResultMap">
+        SELECT * FROM shared_knowledge
+        WHERE task_type = #{taskType} AND (visibility = 'PUBLIC' OR tenant_id = #{tenantId})
+        ORDER BY usage_count DESC
+        LIMIT #{limit}
+    </select>
+
+    <select id="findByAuthorId" resultMap="SharedKnowledgeResultMap">
+        SELECT * FROM shared_knowledge WHERE author_id = #{authorId}
+    </select>
+
+    <select id="findTopPublicKnowledge" resultMap="SharedKnowledgeResultMap">
+        SELECT * FROM shared_knowledge
+        WHERE visibility = 'PUBLIC'
+        ORDER BY avg_rating DESC, usage_count DESC
+        LIMIT #{limit}
+    </select>
+
+    <update id="incrementUsageCount">
+        UPDATE shared_knowledge SET usage_count = usage_count + 1 WHERE id = #{id}
+    </update>
+
+    <insert id="insert" parameterType="com.docsys.agent.learning.entity.SharedKnowledge" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO shared_knowledge (tenant_id, author_id, task_type, title, content, tags, visibility, upvotes, downvotes, usage_count, avg_rating, created_at, updated_at)
+        VALUES (#{tenantId}, #{authorId}, #{taskType}, #{title}, #{content}, #{tags}, #{visibility}, #{upvotes}, #{downvotes}, #{usageCount}, #{avgRating}, #{createdAt}, #{updatedAt})
+    </insert>
+
+    <update id="updateById" parameterType="com.docsys.agent.learning.entity.SharedKnowledge">
+        UPDATE shared_knowledge SET
+            tenant_id = #{tenantId},
+            author_id = #{authorId},
+            task_type = #{taskType},
+            title = #{title},
+            content = #{content},
+            tags = #{tags},
+            visibility = #{visibility},
+            upvotes = #{upvotes},
+            downvotes = #{downvotes},
+            usage_count = #{usageCount},
+            avg_rating = #{avgRating},
+            updated_at = #{updatedAt}
+        WHERE id = #{id}
+    </update>
+
+    <delete id="deleteById">
+        DELETE FROM shared_knowledge WHERE id = #{id}
+    </delete>
+
+</mapper>
