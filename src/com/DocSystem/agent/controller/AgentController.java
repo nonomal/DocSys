@@ -14,12 +14,11 @@ import com.DocSystem.agent.llm.LLMService;
 import com.DocSystem.agent.monitoring.AgentMetrics;
 import com.DocSystem.agent.monitoring.RateLimitService;
 import com.DocSystem.agent.orchestrator.MainAgent;
-import com.DocSystem.agent.session.RedisSessionService;
-import com.DocSystem.agent.session.SessionEntity;
 import com.DocSystem.agent.session.SessionService;
 import com.DocSystem.agent.skill.Skill;
 import com.DocSystem.agent.skill.SkillManager;
 import com.DocSystem.agent.skill.EnhancedSkillManager;
+import com.DocSystem.entity.User;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
@@ -98,9 +97,6 @@ public class AgentController {
     private AuditLogService auditLogService;
 
     @Autowired(required = false)
-    private RedisSessionService redisSessionService;
-
-    @Autowired(required = false)
     private SkillMetadataService skillMetadataService;
 
     // Streaming executor — exposed to DocSysAgentApplication for graceful shutdown
@@ -116,10 +112,8 @@ public class AgentController {
         }
     }
 
-    // Session management - maps Agent sessionId to SessionInfo and DocSysClient
-    private final ConcurrentHashMap<String, SessionInfo> sessions = new ConcurrentHashMap<>();
-
-    // Per-session DocSysClient 池 - 避免单例 cookie 覆盖问题
+    // Per-jsessionid DocSysClient 池 - 避免单例 cookie 覆盖问题。
+    // 认证已由共享 HttpSession 负责，这里仅按 JSESSIONID 缓存用于 HTTP 直通的 DocSysClient。
     private final ConcurrentHashMap<String, DocSysClient> sessionClients = new ConcurrentHashMap<>();
 
     @Value("${agent.sse-timeout:300}")
@@ -138,31 +132,23 @@ public class AgentController {
     private EnvConfig envConfig;
 
     /**
-     * 获取或创建 per-session DocSysClient
-     * 每个 sessionId 有独立的 DocSysClient 实例，避免 cookie 覆盖
+     * 获取或创建 per-jsessionid DocSysClient。
+     * 每个 JSESSIONID 有独立的 DocSysClient 实例（携带 Cookie: JSESSIONID=xxx），
+     * 用于 DocSystem `.do` 业务接口的 HTTP 直通，避免单例 cookie 覆盖。
      */
-    private DocSysClient getSessionClient(String sessionId, String jsessionid) {
-        if (sessionId == null) {
-            // No Agent sessionId — create a one-off client with the provided jsessionid
-            DocSysClient client = docSysClient.copy();
-            if (jsessionid != null && !jsessionid.isEmpty()) {
-                client.setSessionCookie("JSESSIONID=" + stripJsessionidPrefix(jsessionid));
-            }
-            return client;
+    private DocSysClient getSessionClient(String jsessionid) {
+        String raw = stripJsessionidPrefix(jsessionid);
+        if (raw == null || raw.isEmpty()) {
+            // 没有 JSESSIONID —— 返回一个无 cookie 的一次性 client
+            return docSysClient.copy();
         }
-        return sessionClients.compute(sessionId, (key, existing) -> {
+        return sessionClients.compute(raw, (key, existing) -> {
             if (existing != null) {
-                // 更新 jsessionid（如果提供）
-                if (jsessionid != null && !jsessionid.isEmpty()) {
-                    existing.setSessionCookie("JSESSIONID=" + stripJsessionidPrefix(jsessionid));
-                }
+                existing.setSessionCookie("JSESSIONID=" + key);
                 return existing;
             }
-            // 创建新的 DocSysClient
             DocSysClient client = docSysClient.copy();
-            if (jsessionid != null && !jsessionid.isEmpty()) {
-                client.setSessionCookie("JSESSIONID=" + stripJsessionidPrefix(jsessionid));
-            }
+            client.setSessionCookie("JSESSIONID=" + key);
             return client;
         });
     }
@@ -178,103 +164,25 @@ public class AgentController {
     }
 
     /**
-     * 清理会话（登出时调用）
+     * 清理 per-jsessionid DocSysClient 缓存
      */
-    public void removeSession(String sessionId) {
-        sessions.remove(sessionId);
-        sessionClients.remove(sessionId);
+    public void removeSession(String jsessionid) {
+        sessionClients.remove(stripJsessionidPrefix(jsessionid));
         agentMetrics.sessionClosed();
-        // Persist removal to MySQL
-        sessionService.delete(sessionId);
     }
-    
+
     /**
-     * Login using existing browser session (JSESSIONID)
-     * or login with credentials
-     *
-     * 每个登录创建独立的 DocSysClient，避免 cookie 覆盖问题
+     * Current DocSystem-logged-in user from the shared HttpSession, or null.
+     * 认证由 DocSystem 负责：agent 与 DocSystem 同源同上下文，浏览器自动带上同一个
+     * JSESSIONID，因此 request.getSession() 就是 DocSystem 的会话。
      */
-    @PostMapping("/login")
-    public AgentResponse login(
-            @RequestBody Map<String, String> credentials,
-            @RequestHeader(value = "Cookie", required = false) String cookie) {
-
-        String username = credentials.get("username");
-        String password = credentials.get("password");
-        String jsessionid = credentials.get("jsessionid");  // Can provide JSESSIONID directly
-
-        try {
-            String sessionId = java.util.UUID.randomUUID().toString();
-            DocSysClient sessionClient;
-
-            // Strategy 1: JSESSIONID from Cookie header (browser web UI)
-            if (cookie != null && cookie.contains("JSESSIONID")) {
-                String extractedJsessionid = extractJSESSIONID(cookie);
-                if (extractedJsessionid != null && !extractedJsessionid.isEmpty()) {
-                    sessionClient = getSessionClient(sessionId, extractedJsessionid);
-                    Map<String, Object> userInfo = sessionClient.getLoginUser();
-                    if (userInfo != null && "ok".equals(userInfo.get("status"))) {
-                        sessions.put(sessionId, new SessionInfo(username, sessionId, extractedJsessionid));
-                        sessionService.save(new SessionEntity(sessionId, username, extractedJsessionid));
-                        if (redisSessionService != null) {
-                            redisSessionService.saveSession(sessionId, username, extractedJsessionid);
-                        }
-                        log.info("Login via browser cookie, sessionId={}", sessionId);
-                        Map<String, Object> data0 = new HashMap<>();
-                        data0.put("sessionId", sessionId);
-                        return AgentResponse.ok("Logged in via browser session").withData(data0);
-                    }
-                }
-            }
-
-            // Strategy 2: Direct JSESSIONID provided
-            if (jsessionid != null && !jsessionid.isEmpty()) {
-                sessionClient = getSessionClient(sessionId, jsessionid);
-                Map<String, Object> userInfo = sessionClient.getLoginUser();
-                if (userInfo != null && "ok".equals(userInfo.get("status"))) {
-                    sessions.put(sessionId, new SessionInfo(username, sessionId, jsessionid));
-                    sessionService.save(new SessionEntity(sessionId, username, jsessionid));
-                    if (redisSessionService != null) {
-                        redisSessionService.saveSession(sessionId, username, jsessionid);
-                    }
-                    log.info("Login via provided JSESSIONID, sessionId={}", sessionId);
-                    Map<String, Object> data0b = new HashMap<>();
-                    data0b.put("sessionId", sessionId);
-                    return AgentResponse.ok("Logged in via session").withData(data0b);
-                }
-            }
-
-            // Strategy 3: Login with credentials
-            sessionClient = docSysClient.copy();  // 使用独立的 client
-            Map<String, Object> result = sessionClient.login(username, password);
-            if ("ok".equals(result.get("status"))) {
-                // Extract raw JSESSIONID (without prefix) to avoid duplication
-                String fullCookie = sessionClient.getSessionCookie();
-                String rawJsessionid = fullCookie != null && fullCookie.startsWith("JSESSIONID=")
-                    ? fullCookie.substring("JSESSIONID=".length())
-                    : fullCookie;
-                // 存储到 sessionClients 池
-                sessionClients.put(sessionId, sessionClient);
-                sessions.put(sessionId, new SessionInfo(username, sessionId, rawJsessionid));
-                sessionService.save(new SessionEntity(sessionId, username, rawJsessionid));
-                if (redisSessionService != null) {
-                    redisSessionService.saveSession(sessionId, username, rawJsessionid);
-                }
-                agentMetrics.sessionOpened();
-                log.info("Login successful, sessionId={}, username={}", sessionId, username);
-                Map<String, Object> loginData = new HashMap<>();
-                loginData.put("sessionId", sessionId);
-                loginData.put("jsessionid", rawJsessionid != null ? rawJsessionid : "");
-                return AgentResponse.ok("Logged in as " + username).withData(loginData);
-            } else {
-                return AgentResponse.error(result.get("msgInfo") != null ? result.get("msgInfo").toString() : "Login failed");
-            }
-        } catch (Exception e) {
-            log.error("Login failed", e);
-            return AgentResponse.error("Login failed: " + e.getMessage());
-        }
+    private User currentUser(HttpServletRequest request) {
+        if (request == null) return null;
+        javax.servlet.http.HttpSession session = request.getSession(false);
+        if (session == null) return null;
+        Object u = session.getAttribute("login_user");
+        return (u instanceof User) ? (User) u : null;
     }
-    
     /**
      * Execute request DTO - 使用 JSON body 传递参数
      *
@@ -306,128 +214,33 @@ public class AgentController {
     }
 
     /**
-     * Process agent command
+     * Process agent command.
      *
-     * Session priority (best practice for multi-channel):
-     * 1. JSESSIONID from Cookie header (web/WeChat session)
-     * 2. sessionId + stored JSESSIONID (agent's own session)
-     * 3. Auth token (future WeChat/other channel auth)
+     * 认证：直接读取共享 HttpSession 中 DocSystem 写入的 login_user。
+     * 不再由 agent 自己管理登录/会话。
      */
     @PostMapping("/execute")
     public AgentResponse execute(
             @RequestBody ExecuteRequest request,
-            @RequestHeader(value = "Cookie", required = false) String cookieHeader) {
+            HttpServletRequest servletRequest) {
 
         String command = request.getCommand();
-        String sessionId = request.getSessionId();
-        String jsessionidParam = request.getJsessionid();
-        // 优先使用 header 中的 cookie，其次使用 body 中的
-        String cookie = cookieHeader != null ? cookieHeader : request.getCookie();
 
-        log.info("Execute called - command length: {}, sessionId: {}, jsessionidParam: {}, cookie: {}",
-            command != null ? command.length() : 0, sessionId, jsessionidParam, cookie != null ? "present" : "null");
+        log.info("Execute called - command length: {}", command != null ? command.length() : 0);
 
         String requestId = java.util.UUID.randomUUID().toString();
         MDC.put("requestId", requestId);
 
         try {
-            // ===== SESSION RESOLUTION STRATEGY =====
-            String resolvedJsessionId = null;
-            String username = null;
-
-            // Strategy 1: Direct JSESSIONID in request parameter (WeChat/API)
-            if (jsessionidParam != null && !jsessionidParam.isEmpty()) {
-                resolvedJsessionId = jsessionidParam;
-                log.info("Using JSESSIONID from request body");
+            // ===== 认证：来自共享 HttpSession 的当前用户 =====
+            User user = currentUser(servletRequest);
+            if (user == null) {
+                return AgentResponse.error("NOT_LOGGED_IN");
             }
-            // Strategy 2: Agent's own session (login + sessionId)
-            else if (sessionId != null) {
-                SessionInfo info = sessions.get(sessionId);
-                if (info != null) {
-                    resolvedJsessionId = info.jsessionid;
-                    username = info.username;
-                    log.info("Using JSESSIONID from agent session: {}", resolvedJsessionId);
-                }
-                // No DOCSYS_JSESSIONID fallback — that cookie was test-bridge
-                // cruft. If the agent-side session is gone, Strategy 3 (Cookie
-                // header) still works because the browser auto-sends
-                // JSESSIONID for /agent/* same-origin requests.
-            }
-            // Strategy 3: JSESSIONID from Cookie header (browser web UI)
-            if (resolvedJsessionId == null && cookie != null && cookie.contains("JSESSIONID")) {
-                resolvedJsessionId = extractJSESSIONID(cookie);
-                log.info("Using JSESSIONID from cookie header: {}", resolvedJsessionId);
-            }
-
-            // If we have a JSESSIONID, validate and use it
-            if (resolvedJsessionId != null) {
-                // Get or create per-session DocSysClient (避免 cookie 覆盖)
-                DocSysClient sessionClient;
-                if (sessionId != null && sessions.containsKey(sessionId)) {
-                    // 使用已登录的 session
-                    sessionClient = getSessionClient(sessionId, resolvedJsessionId);
-                } else {
-                    // 临时会话（通过 cookie 或 jsessionidParam）
-                    sessionClient = getSessionClient(sessionId != null ? sessionId : "temp", resolvedJsessionId);
-                }
-
-                Map<String, Object> userInfo = sessionClient.getLoginUser();
-
-                if (userInfo == null) {
-                    log.warn("getLoginUser returned null for JSESSIONID: {}", resolvedJsessionId);
-                    return AgentResponse.error("Session check failed. Please login again.");
-                }
-                if ("ok".equals(userInfo.get("status"))) {
-                    // Session is valid
-                    if (username == null && userInfo.get("data") != null) {
-                        // Try to get username from response
-                        try {
-                            Object data = userInfo.get("data");
-                            if (data instanceof Map) {
-                                username = (String) ((Map<?,?>)data).get("name");
-                            }
-                        } catch (Exception e) { /* ignore */ }
-                    }
-                    log.info("Authenticated as: {}", username != null ? username : "browser user");
-                } else {
-                    log.warn("Session invalid: {}", userInfo.get("msgInfo"));
-                    return AgentResponse.error("Session expired or invalid. Please login again.");
-                }
-            } else {
-                // No valid session
-                return AgentResponse.error("No valid session. Please login or provide JSESSIONID.");
-            }
-
-            // Create session info for this request
-            String effectiveSessionId = sessionId != null ? sessionId : "temp-session";
-            SessionInfo info = new SessionInfo(username != null ? username : "browser-user",
-                effectiveSessionId, resolvedJsessionId);
-
-            // Set MDC context for structured logging
-            MDC.put("sessionId", effectiveSessionId);
-            if (username != null) {
-                MDC.put("userId", username);
-            }
-
-            // Get context
-            AgentContext context = getContext(effectiveSessionId);
-
-            // Execute via MainAgent (传入 per-session client)
-            log.info("Calling mainAgent.process...");
-            DocSysClient execClient = getSessionClient(effectiveSessionId, resolvedJsessionId);
-            long execStart = System.currentTimeMillis();
-            AgentResponse response = mainAgent.process(command, context, info, execClient);
-            long duration = System.currentTimeMillis() - execStart;
-            // Extract intent from command for metrics
-            String intent = extractIntent(command);
-            agentMetrics.recordExecution(intent, duration, response.isSuccess());
-            sessionService.touch(effectiveSessionId);
-            log.info("MainAgent response: success={}, message={}", response.isSuccess(), response.getMessage());
-            return response;
-
-        } catch (Exception e) {
-            log.error("Execution failed", e);
-            return AgentResponse.error("Execution failed: " + e.getMessage());
+            String username = user.getName();
+            // 供 DocSysClient HTTP 直通使用的 JSESSIONID（即 DocSystem 会话 id）
+            String jsessionid = servletRequest.getSession().getId();
+            return runCommand(command, username, jsessionid);
         } finally {
             MDC.remove("requestId");
             MDC.remove("sessionId");
@@ -436,15 +249,40 @@ public class AgentController {
     }
 
     /**
-     * 内部执行方法（供 executeSmart 等内部调用）
+     * 执行核心逻辑（认证之后）。username/jsessionid 必须在请求线程内解析好，
+     * 以便 SSE 等后台线程也能安全调用（不依赖已回收的 request）。
      */
-    private AgentResponse executeInternal(String command, String sessionId, String jsessionid, String cookie) {
-        ExecuteRequest request = new ExecuteRequest();
-        request.setCommand(command);
-        request.setSessionId(sessionId);
-        request.setJsessionid(jsessionid);
-        request.setCookie(cookie);
-        return execute(request, null);
+    private AgentResponse runCommand(String command, String username, String jsessionid) {
+        try {
+            log.info("Authenticated as: {}", username);
+
+            // Set MDC context for structured logging
+            MDC.put("sessionId", jsessionid);
+            MDC.put("userId", username);
+
+            // Build session info for MainAgent (jsessionid 作为有效 sessionId)
+            SessionInfo info = new SessionInfo(username, jsessionid, jsessionid);
+
+            // Get context
+            AgentContext context = getContext(username, jsessionid);
+
+            // Execute via MainAgent (传入 per-jsessionid client)
+            log.info("Calling mainAgent.process...");
+            DocSysClient execClient = getSessionClient(jsessionid);
+            long execStart = System.currentTimeMillis();
+            AgentResponse response = mainAgent.process(command, context, info, execClient);
+            long duration = System.currentTimeMillis() - execStart;
+            // Extract intent from command for metrics
+            String intent = extractIntent(command);
+            agentMetrics.recordExecution(intent, duration, response.isSuccess());
+            sessionService.touch(jsessionid);
+            log.info("MainAgent response: success={}, message={}", response.isSuccess(), response.getMessage());
+            return response;
+
+        } catch (Exception e) {
+            log.error("Execution failed", e);
+            return AgentResponse.error("Execution failed: " + e.getMessage());
+        }
     }
 
     /**
@@ -478,36 +316,22 @@ public class AgentController {
         public String getCookie() { return cookie; }
         public void setCookie(String cookie) { this.cookie = cookie; }
     }
-    
-    private String extractJSESSIONID(String cookie) {
-        if (cookie == null) return null;
-        for (String part : cookie.split(";")) {
-            part = part.trim();
-            if (part.startsWith("JSESSIONID=")) {
-                return part.substring("JSESSIONID=".length());
-            }
-        }
-        return null;
-    }
-    
+
     /**
-     * Get session info
+     * Get current logged-in user info from the shared DocSystem session.
      */
     @GetMapping("/session")
-    public AgentResponse getSession(@RequestParam String sessionId) {
-        // Check in-memory cache first (hot path)
-        SessionInfo info = sessions.get(sessionId);
-        if (info != null) {
-            return AgentResponse.ok(info);
+    public AgentResponse getSession(HttpServletRequest request) {
+        User user = currentUser(request);
+        if (user == null) {
+            return AgentResponse.error("NOT_LOGGED_IN");
         }
-        // Fallback to MySQL (session may have been persisted after server restart)
-        SessionEntity entity = sessionService.findBySessionId(sessionId);
-        if (entity != null) {
-            SessionInfo restored = new SessionInfo(entity.getUsername(), entity.getSessionId(), entity.getJsessionid());
-            sessions.put(sessionId, restored);  // Repopulate local cache
-            return AgentResponse.ok(restored);
-        }
-        return AgentResponse.error("Session not found");
+        Map<String, Object> data = new HashMap<>();
+        data.put("userId", user.getId());
+        data.put("username", user.getName());
+        data.put("realName", user.getRealName());
+        data.put("sessionId", request.getSession().getId());
+        return AgentResponse.ok(data);
     }
 
     /**
@@ -640,7 +464,22 @@ public class AgentController {
 
         final String capturedClientIp = clientIp;
 
-        log.info("SSE stream: command='{}', sessionId={}, ip={}", command, sessionId, clientIp);
+        // ===== 认证：在请求线程内解析当前用户（后台线程不能再访问 request）=====
+        User user = currentUser(request);
+        if (user == null) {
+            SseEmitter authEmitter = new SseEmitter(5000L);
+            try {
+                authEmitter.send(SseEmitter.event()
+                    .data("{\"type\":\"error\",\"message\":\"NOT_LOGGED_IN\"}"));
+                authEmitter.complete();
+            } catch (Exception ignored) {}
+            if (rateLimitService != null) rateLimitService.releaseSseSlot(capturedClientIp);
+            return authEmitter;
+        }
+        final String capturedUsername = user.getName();
+        final String capturedJsessionid = request.getSession().getId();
+
+        log.info("SSE stream: command='{}', user={}, ip={}", command, capturedUsername, clientIp);
 
         SseEmitter emitter = new SseEmitter(sseTimeoutSeconds * 1000L); // configurable timeout
 
@@ -705,8 +544,8 @@ public class AgentController {
                     if (isWriteOp) {
                         // Per D-13: Emit SSE confirm event and wait for user approval
                         String confirmToken = UUID.randomUUID().toString();
-                        String userId = MDC.get("userId");
-                        String effectiveSession = sessionId != null ? sessionId : "stream-" + System.currentTimeMillis();
+                        String userId = capturedUsername;
+                        String effectiveSession = capturedJsessionid;
                         String traceId = MDC.get("traceId");
 
                         // Build params for audit log
@@ -738,7 +577,7 @@ public class AgentController {
 
                     AgentResponse result;
                     try {
-                        result = executeInternal(command, sessionId, null, null);
+                        result = runCommand(command, capturedUsername, capturedJsessionid);
                     } catch (Exception ex) {
                         log.error("executeInternal failed", ex);
                         emitter.send(SseEmitter.event()
@@ -814,7 +653,7 @@ public class AgentController {
      * Admin users see all skills.
      */
     @GetMapping("/skills")
-    public AgentResponse listSkills(@RequestParam(value = "sessionId", required = false) String sessionId) {
+    public AgentResponse listSkills(HttpServletRequest request) {
         Collection<Skill> skillsCollection = SkillManager.getInstance().getAllSkills();
         List<Skill> skills = new java.util.ArrayList<>(skillsCollection);
         List<Map<String, Object>> result = new java.util.ArrayList<Map<String, Object>>();
@@ -824,10 +663,9 @@ public class AgentController {
         String currentUserId = "anonymous";
         String currentTenantId = null;
 
-        if (sessionId != null && sessions.containsKey(sessionId)) {
-            SessionInfo sessionInfo = sessions.get(sessionId);
-            currentUserId = sessionInfo.username != null ? sessionInfo.username : "anonymous";
-            currentTenantId = sessionInfo.tenantId;
+        User user = currentUser(request);
+        if (user != null) {
+            currentUserId = user.getName() != null ? user.getName() : "anonymous";
 
             // Admin can see all skills
             boolean isAdmin = skillMetadataService != null && skillMetadataService.isAdmin(currentUserId, currentTenantId);
@@ -874,7 +712,6 @@ public class AgentController {
         grouped.put("skills", result);
         grouped.put("grouped", categories);
         grouped.put("total", result.size());
-        grouped.put("sessionId", sessionId);
         grouped.put("userId", currentUserId);
 
         return AgentResponse.ok(grouped);
@@ -891,9 +728,13 @@ public class AgentController {
     public AgentResponse uploadSkill(
             @RequestParam("file") MultipartFile file,
             @RequestParam(value = "skillId", required = false) String providedSkillId,
-            @RequestParam(value = "sessionId", required = false) String sessionId,
-            @RequestParam(value = "visibility", required = false, defaultValue = "PRIVATE") String visibility) {
+            @RequestParam(value = "visibility", required = false, defaultValue = "PRIVATE") String visibility,
+            HttpServletRequest request) {
         try {
+            User currentUser = currentUser(request);
+            if (currentUser == null) {
+                return AgentResponse.error("NOT_LOGGED_IN");
+            }
             if (file.isEmpty()) {
                 return AgentResponse.error("文件不能为空");
             }
@@ -1084,11 +925,10 @@ public class AgentController {
             String creatorName = "Anonymous";
             boolean isAdminSkill = false;
 
-            if (sessionId != null && sessions.containsKey(sessionId)) {
-                SessionInfo sessionInfo = sessions.get(sessionId);
-                creatorId = sessionInfo.username != null ? sessionInfo.username : "anonymous";
-                creatorName = sessionInfo.username != null ? sessionInfo.username : "Anonymous";
-                isAdminSkill = skillMetadataService != null && skillMetadataService.isAdmin(creatorId, sessionInfo.tenantId);
+            {
+                creatorId = currentUser.getName() != null ? currentUser.getName() : "anonymous";
+                creatorName = currentUser.getName() != null ? currentUser.getName() : "Anonymous";
+                isAdminSkill = skillMetadataService != null && skillMetadataService.isAdmin(creatorId, null);
 
                 // Validate visibility - normal users can only use PRIVATE
                 if (!isAdminSkill && !"PRIVATE".equals(visibility)) {
@@ -1314,16 +1154,15 @@ public class AgentController {
             @RequestParam("skillId") String skillId,
             @RequestParam("visibility") String visibility,
             @RequestParam(value = "allowedUserIds", required = false) String allowedUserIds,
-            @RequestParam(value = "sessionId", required = false) String sessionId) {
+            HttpServletRequest request) {
         try {
             // Check if user is admin
-            String userId = "anonymous";
-            String tenantId = null;
-            if (sessionId != null && sessions.containsKey(sessionId)) {
-                SessionInfo sessionInfo = sessions.get(sessionId);
-                userId = sessionInfo.username != null ? sessionInfo.username : "anonymous";
-                tenantId = sessionInfo.tenantId;
+            User user = currentUser(request);
+            if (user == null) {
+                return AgentResponse.error("NOT_LOGGED_IN");
             }
+            String userId = user.getName() != null ? user.getName() : "anonymous";
+            String tenantId = null;
 
             boolean isAdmin = skillMetadataService != null && skillMetadataService.isAdmin(userId, tenantId);
             if (!isAdmin) {
@@ -1461,14 +1300,11 @@ public class AgentController {
     @PostMapping("/executeSmart")
     public AgentResponse executeSmart(
             @RequestBody ExecuteSmartRequest request,
-            @RequestHeader(value = "Cookie", required = false) String cookieHeader) {
+            HttpServletRequest servletRequest) {
 
         String command = request.getCommand();
         String mode = request.getMode();
-        String sessionId = request.getSessionId();
         boolean visualFallback = request.isVisualFallback();
-        String jsessionidParam = request.getJsessionid();
-        String cookie = cookieHeader != null ? cookieHeader : request.getCookie();
 
         log.info("executeSmart: command length={}, mode='{}', visualFallback={}",
             command != null ? command.length() : 0, mode, visualFallback);
@@ -1478,57 +1314,56 @@ public class AgentController {
             return AgentResponse.error("Command is required");
         }
 
-        // Step 1: 解析会话
-        String resolvedJsessionId = resolveSession(sessionId, jsessionidParam, cookie);
-        if (resolvedJsessionId == null && sessionId != null) {
-            SessionInfo info = sessions.get(sessionId);
-            if (info != null) {
-                resolvedJsessionId = info.jsessionid;
-            }
+        // 认证：来自共享 HttpSession 的当前用户
+        User user = currentUser(servletRequest);
+        if (user == null) {
+            return AgentResponse.error("NOT_LOGGED_IN");
         }
+        String username = user.getName();
+        String jsessionid = servletRequest.getSession().getId();
 
-        // Step 2: 根据模式执行
+        // 根据模式执行
         if ("visual".equals(mode)) {
             // 仅可视化模式
-            return executeVisual(command, sessionId, resolvedJsessionId);
+            return executeVisual(command, username, jsessionid);
         } else if ("cli".equals(mode)) {
             // 仅 CLI 模式
-            return executeInternal(command, sessionId, resolvedJsessionId, cookie);
+            return runCommand(command, username, jsessionid);
         } else {
             // 自动模式: CLI 优先 + 可视化备选
-            return executeWithFallback(command, sessionId, resolvedJsessionId);
+            return executeWithFallback(command, username, jsessionid);
         }
     }
 
     /**
      * CLI 优先 + 可视化备选执行
      */
-    private AgentResponse executeWithFallback(String command, String sessionId, String jsessionid) {
+    private AgentResponse executeWithFallback(String command, String username, String jsessionid) {
         long startTime = System.currentTimeMillis();
 
         // Step 1: 尝试 CLI (5秒超时)
         try {
-            AgentResponse cliResponse = executeInternal(command, sessionId, jsessionid, null);
+            AgentResponse cliResponse = runCommand(command, username, jsessionid);
             long cliTime = System.currentTimeMillis() - startTime;
-            
+
             if (cliResponse.isSuccess()) {
                 log.info("CLI succeeded in {}ms", cliTime);
                 // 添加执行方式标记
                 cliResponse.setMessage(cliResponse.getMessage() + "\n[执行方式: CLI, 耗时: " + cliTime + "ms]");
                 return cliResponse;
             }
-            
+
             log.warn("CLI failed: {}. Trying visual...", cliResponse.getMessage());
         } catch (Exception e) {
             log.warn("CLI exception: {}. Trying visual...", e.getMessage());
         }
-        
+
         // Step 2: CLI 失败，尝试可视化
         long visualStartTime = System.currentTimeMillis();
         try {
-            AgentResponse visualResponse = executeVisual(command, sessionId, jsessionid);
+            AgentResponse visualResponse = executeVisual(command, username, jsessionid);
             long visualTime = System.currentTimeMillis() - visualStartTime;
-            
+
             log.info("Visual succeeded in {}ms", visualTime);
             visualResponse.setMessage(visualResponse.getMessage() + "\n[执行方式: Visual Automation, 耗时: " + visualTime + "ms]");
             return visualResponse;
@@ -1548,47 +1383,6 @@ public class AgentController {
         // executeWithFallback 仍会先走 CLI；CLI 成功即返回，失败则回落到此处的明确错误。
         return AgentResponse.error("浏览器自动化功能未启用。请使用 CLI/API 方式操作。");
     }
-    
-    /**
-     * 解析命令为可视化操作类型
-     */
-    private String parseVisualOperation(String command) {
-        String lower = command.toLowerCase();
-        if (lower.contains("login") || lower.contains("登录")) {
-            return "login";
-        } else if (lower.contains("list") && lower.contains("doc")) {
-            return "browse_documents";
-        } else if (lower.contains("upload") || lower.contains("上传")) {
-            return "upload_file";
-        } else if (lower.contains("create") && lower.contains("folder")) {
-            return "create_folder";
-        } else if (lower.contains("search")) {
-            return "search";
-        }
-        return "browse_documents"; // 默认浏览
-    }
-    
-    /**
-     * 解析会话 ID
-     */
-    private String resolveSession(String sessionId, String jsessionidParam, String cookie) {
-        // Strategy 1: Direct JSESSIONID in request body
-        if (jsessionidParam != null && !jsessionidParam.isEmpty()) {
-            return jsessionidParam;
-        }
-        // Strategy 2: From sessionId map (Agent session registry)
-        if (sessionId != null) {
-            SessionInfo info = sessions.get(sessionId);
-            if (info != null) {
-                return info.jsessionid;
-            }
-        }
-        // Strategy 3: From Cookie header (browser auto-sends JSESSIONID)
-        if (cookie != null && cookie.contains("JSESSIONID")) {
-            return extractJSESSIONID(cookie);
-        }
-        return null;
-    }
 
     /**
      * List available repositories for the current session.
@@ -1596,17 +1390,15 @@ public class AgentController {
      * GET /api/agent/repos?sessionId=xxx
      */
     @GetMapping("/repos")
-    public AgentResponse listRepos(
-            @RequestParam(name = "sessionId", required = false) String sessionId,
-            @RequestParam(value = "jsessionid", required = false) String jsessionidParam,
-            @RequestHeader(value = "Cookie", required = false) String cookie) {
+    public AgentResponse listRepos(HttpServletRequest request) {
 
-        // Extract JSESSIONID from Cookie header (browser sends it automatically)
-        if ((jsessionidParam == null || jsessionidParam.isEmpty()) && cookie != null && cookie.contains("JSESSIONID")) {
-            jsessionidParam = extractJSESSIONID(cookie);
+        User user = currentUser(request);
+        if (user == null) {
+            return AgentResponse.error("NOT_LOGGED_IN");
         }
+        String jsessionid = request.getSession().getId();
 
-        DocSysClient client = getSessionClient(sessionId, jsessionidParam);
+        DocSysClient client = getSessionClient(jsessionid);
 
         try {
             Map<String, Object> raw = client.getReposList();
@@ -1658,7 +1450,7 @@ public class AgentController {
     public AgentResponse health() {
         Map<String, Object> details = new HashMap<>();
         details.put("docsysUrl", docSysClient.getBaseUrl());
-        details.put("activeSessions", sessions.size());
+        details.put("activeSessions", sessionClients.size());
 
         String dbStatus;
         long persistedSessions = 0;
@@ -1924,10 +1716,8 @@ public class AgentController {
             @RequestParam(value = "file", required = false) MultipartFile file,
             @RequestParam(value = "files", required = false) MultipartFile[] files,
             @RequestParam(value = "metadata", required = false) String metadataJson,
-            @RequestParam(value = "sessionId", required = false) String sessionId,
             @RequestParam(value = "reposId", required = false) Integer reposIdParam,
-            @RequestParam(value = "jsessionid", required = false) String jsessionidParam,
-            @RequestHeader(value = "Cookie", required = false) String cookie) {
+            HttpServletRequest servletRequest) {
         log.info("Upload endpoint hit - content-type received");
 
         // 解析 metadata JSON
@@ -1946,20 +1736,19 @@ public class AgentController {
             request.setReposId(reposIdParam);
         }
 
-        log.info("Upload called - reposId: {}, sessionId: {}, file: {}, files count: {}",
-            request.getReposId(), sessionId, file != null ? file.getOriginalFilename() : "null",
+        log.info("Upload called - reposId: {}, file: {}, files count: {}",
+            request.getReposId(), file != null ? file.getOriginalFilename() : "null",
             files != null ? files.length : 0);
 
         try {
-            // 解析会话
-            String resolvedJsessionId = resolveSession(sessionId, jsessionidParam, cookie);
-            String effectiveSessionId = sessionId != null ? sessionId : "temp-upload";
-
-            if (resolvedJsessionId == null) {
-                return AgentResponse.error("No valid session. Please login first.");
+            // 认证：来自共享 HttpSession 的当前用户
+            User user = currentUser(servletRequest);
+            if (user == null) {
+                return AgentResponse.error("NOT_LOGGED_IN");
             }
+            String jsessionid = servletRequest.getSession().getId();
 
-            DocSysClient uploadClient = getSessionClient(effectiveSessionId, resolvedJsessionId);
+            DocSysClient uploadClient = getSessionClient(jsessionid);
 
             // 处理多文件上传
             if (files != null && files.length > 0) {
@@ -2156,20 +1945,15 @@ public class AgentController {
         return AgentResponse.ok("Folder upload prepared").withData(response);
     }
     
-    private AgentContext getContext(String sessionId) {
+    private AgentContext getContext(String username, String sessionId) {
         if (sessionId == null) {
             return AgentContext.builder().withSessionId("anonymous").build();
         }
-        
-        SessionInfo info = sessions.get(sessionId);
-        if (info == null) {
-            return AgentContext.builder().withSessionId(sessionId).build();
+        AgentContext.Builder builder = AgentContext.builder().withSessionId(sessionId);
+        if (username != null) {
+            builder.withUsername(username);
         }
-        
-        return AgentContext.builder()
-            .withSessionId(sessionId)
-            .withUsername(info.username)
-            .build();
+        return builder.build();
     }
     
     public static class SessionInfo {

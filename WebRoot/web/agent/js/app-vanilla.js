@@ -126,7 +126,10 @@
         
         // Bind events
         bindEvents();
-        
+
+        // Check DocSystem shared session (enters app or redirects to login)
+        checkDocSysLogin();
+
         console.log('Initialization complete');
     }
     
@@ -165,27 +168,53 @@
                 console.error('Failed to load settings:', e);
             }
         }
-        
-        // Check for existing session
-        const savedSession = localStorage.getItem('docsys-session');
-        if (savedSession) {
-            try {
-                const sessionData = JSON.parse(savedSession);
-                state.sessionId = sessionData.sessionId;
-                state.username = sessionData.username || 'admin';
+    }
+
+    // ==================== Shared DocSystem Session ====================
+    // Redirect to DocSystem's shared login page (same as DocSystem's interceptor).
+    function redirectToDocSysLogin() {
+        window.location.href = '/DocSystem/tologin.do?option=reload';
+    }
+
+    // If an agent API response carries the NOT_LOGGED_IN marker, treat it as a
+    // session expiry and bounce to DocSystem login. Returns true if redirected.
+    function handleAuthError(message) {
+        if (message && String(message).indexOf('NOT_LOGGED_IN') !== -1) {
+            redirectToDocSysLogin();
+            return true;
+        }
+        return false;
+    }
+
+    // The agent is merged into DocSystem (same origin, /DocSystem) and no longer
+    // does its own login. Check DocSystem's shared session on init; if logged in
+    // enter the app, otherwise redirect to DocSystem's login page.
+    async function checkDocSysLogin() {
+        try {
+            const res = await fetch('/DocSystem/User/getLoginUser.do', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: '',
+                credentials: 'same-origin'
+            });
+            const ret = await res.json();
+            if (ret && ret.status === 'ok' && ret.data) {
+                state.username = ret.data.name || 'admin';
                 state.isLoggedIn = true;
                 showMainApp();
-            } catch (e) {
-                console.error('Failed to restore session:', e);
+                return;
             }
+        } catch (e) {
+            console.warn('getLoginUser check failed:', e);
         }
+        redirectToDocSysLogin();
     }
+
     
     // ==================== Events ====================
     function bindEvents() {
-        // Login form
-        elements.loginForm.addEventListener('submit', handleLogin);
-        
+        // Login form removed: agent uses DocSystem's shared session (no local login).
+
         // Quick commands
         document.querySelectorAll('.quick-cmd').forEach(el => {
             el.addEventListener('click', () => {
@@ -253,59 +282,9 @@
     }
     
     // ==================== Login ====================
-    async function handleLogin(e) {
-        e.preventDefault();
-        
-        const username = elements.usernameInput.value.trim();
-        const password = elements.passwordInput.value.trim();
-        
-        if (!username || !password) {
-            showToast('请输入用户名和密码', 'error');
-            return;
-        }
-        
-        setLoginLoading(true);
-        
-        try {
-            const response = await fetch(API_BASE + '/login', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ username, password })
-            });
-            
-            const data = await response.json();
-            
-            if (data.success) {
-                state.isLoggedIn = true;
-                state.sessionId = data.data.sessionId;
-                state.username = username;
-                
-                // Save session
-                localStorage.setItem('docsys-session', JSON.stringify({
-                    sessionId: state.sessionId,
-                    username: state.username
-                }));
-                
-                showToast('登录成功', 'success');
-                showMainApp();
-            } else {
-                showToast(data.message || '登录失败', 'error');
-            }
-        } catch (error) {
-            console.error('Login error:', error);
-            showToast('登录失败: ' + error.message, 'error');
-        } finally {
-            setLoginLoading(false);
-        }
-    }
-    
-    function setLoginLoading(loading) {
-        elements.loginBtn.disabled = loading;
-        elements.loginBtn.textContent = loading ? '登录中...' : '登录';
-    }
-    
+    // Login is handled by DocSystem's shared session (see checkDocSysLogin).
+    // The agent no longer posts to /agent/login.
+
     // ==================== Chat ====================
     async function sendMessage() {
         const message = elements.messageInput.value.trim();
@@ -443,6 +422,7 @@
                     }
 
                     if (data.type === 'error') {
+                        if (handleAuthError(data.message)) { reader.cancel(); return; }
                         if (assistantDiv) assistantDiv.remove();
                         addMessage('assistant', '错误: ' + (data.message || '未知错误'));
                     }
@@ -757,6 +737,8 @@
                 addMessage('system', `✅ 上传成功: ${file.name}`);
             } else {
                 const errorMsg = data.message || '未知错误';
+
+                if (handleAuthError(errorMsg)) return;
 
                 // 检查是否是仓库相关的错误
                 if (errorMsg.includes('仓库') || errorMsg.includes('repo') || errorMsg.includes('不存在') || errorMsg.includes('not exist')) {

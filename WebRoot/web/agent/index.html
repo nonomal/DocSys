@@ -1813,16 +1813,22 @@
     // API_BASE: merged into DocSys under context path /DocSystem, backend mapped at /agent.
     const API_BASE = '/DocSystem/agent';
 
+    // Redirect to DocSystem's shared login page (same as DocSystem's interceptor).
+    function redirectToDocSysLogin() {
+        window.location.href = '/DocSystem/tologin.do?option=reload';
+    }
+
+    // If an agent API response carries the NOT_LOGGED_IN marker, treat it as a
+    // session expiry and bounce to DocSystem login. Returns true if redirected.
+    function handleAuthError(message) {
+        if (message && String(message).indexOf('NOT_LOGGED_IN') !== -1) {
+            redirectToDocSysLogin();
+            return true;
+        }
+        return false;
+    }
+
     const API = {
-        async login(username, password) {
-            const res = await fetch(API_BASE + '/login', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ username, password })
-            });
-            return res.json();
-        },
-        
         async execute(command, sessionId) {
             // 使用 JSON body 传递参数（无长度限制，支持中文和特殊字符）
             const res = await fetch(API_BASE + '/execute', {
@@ -2544,56 +2550,12 @@
     }
 
     function showLoginScreen() {
-        state.isLoggedIn = false;
-        state.sessionId = null;
-        state.messages = [];
-        renderMessages();
-        switchView('login');
-        document.getElementById('username').focus();
+        // Merged into DocSystem: the agent no longer has its own login form.
+        // Redirect to DocSystem's shared login page instead.
+        redirectToDocSysLogin();
     }
 
     // ==================== Actions ====================
-    async function handleLogin(e) {
-        e.preventDefault();
-        var username = document.getElementById('username').value;
-        var password = document.getElementById('password').value;
-        var btn = document.getElementById('loginBtn');
-        
-        btn.disabled = true;
-        btn.textContent = '登录中...';
-        
-        try {
-            var result = await API.login(username, password);
-            if (result.success) {
-                state.isLoggedIn = true;
-                state.sessionId = result.data.sessionId;
-                state.username = username;
-                // Set DOCSYS_JSESSIONID cookie so Cookie-based API calls work (upload, /repos)
-                if (result.data && result.data.jsessionid) {
-                    document.cookie = 'DOCSYS_JSESSIONID=' + result.data.jsessionid + '; path=/';
-                }
-                state.messages = []; // Clear any stale messages (e.g. session expired)
-                state.sessions = [{ id: 'default', name: '新会话' }];
-                state.currentSession = 'default';
-                state.pendingMessages = []; // Clear any pending messages
-                state.isGenerating = false;
-                if (state.abortController) { state.abortController.abort(); state.abortController = null; }
-                showMessage('登录成功', 'success');
-                switchView('app');
-                renderSessions();
-                renderMessages();
-                updateSendButton();
-                refreshSoulData(); // Load soul evolution data on login
-            } else {
-                showMessage(result.message || '登录失败', 'error');
-            }
-        } catch (err) {
-            showMessage('登录失败: ' + err.message, 'error');
-        }
-        
-        btn.disabled = false;
-        btn.textContent = '登 录';
-    }
 
     // Claude Code style: streaming + interruptable generation
     async function sendMessage() {
@@ -2702,6 +2664,7 @@
                             };
                         } else if (event.type === 'error') {
                             streamError = event.message;
+                            if (handleAuthError(event.message)) { isSessionExpired = true; return; }
                         }
                     } catch (e) {
                         // Skip malformed JSON
@@ -2797,8 +2760,6 @@
     }
 
     // ==================== Events ====================
-    document.getElementById('loginForm').addEventListener('submit', handleLogin);
-
     document.getElementById('sendBtn').addEventListener('click', sendMessage);
     document.getElementById('stopBtn').addEventListener('click', function() {
         stopGeneration();
@@ -3119,6 +3080,7 @@
             var url = API_BASE + '/repos?sessionId=' + encodeURIComponent(state.sessionId || '');
             var resp = await fetch(url);
             var data = await resp.json();
+            if (data && !data.success && handleAuthError(data.message)) return null;
             if (data.success && data.data && data.data.firstVid > 0) {
                 _cachedReposId = String(data.data.firstVid);
                 return _cachedReposId;
@@ -3540,6 +3502,46 @@
             renderMessages();
         }
     });
+
+    // ==================== Startup: shared DocSystem session ====================
+    // The agent is merged into DocSystem (same origin, /DocSystem). It no longer
+    // does its own login: check DocSystem's shared session on load. If logged in,
+    // enter the app directly; otherwise redirect to DocSystem's login page.
+    function enterApp(user) {
+        state.isLoggedIn = true;
+        state.username = (user && user.name) ? user.name : '';
+        if (!state.sessions || state.sessions.length === 0) {
+            state.sessions = [{ id: 'default', name: '新会话' }];
+            state.currentSession = 'default';
+        }
+        switchView('app');
+        renderSessions();
+        renderMessages();
+        updateSendButton();
+        refreshSoulData();
+    }
+
+    async function checkDocSysLogin() {
+        try {
+            var res = await fetch('/DocSystem/User/getLoginUser.do', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: '',
+                credentials: 'same-origin'
+            });
+            var ret = await res.json();
+            if (ret && ret.status === 'ok' && ret.data) {
+                enterApp(ret.data);
+                return;
+            }
+        } catch (e) {
+            console.warn('getLoginUser check failed:', e);
+        }
+        // Not logged in (or check failed): go to DocSystem's shared login page.
+        redirectToDocSysLogin();
+    }
+
+    checkDocSysLogin();
     </script>
 </body>
 </html>
