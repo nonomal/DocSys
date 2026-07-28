@@ -21,7 +21,7 @@
     <!-- 自动扫描(自动注入) -->
     <context:component-scan base-package="com.DocSystem.service" />
     <!-- DocSysAgent: root容器扫描Agent非Controller组件(Controller交由spring-mvc.xml的mvc容器) -->
-    <context:component-scan base-package="com.docsys.agent" >
+    <context:component-scan base-package="com.DocSystem.agent" >
         <context:exclude-filter type="annotation" expression="org.springframework.stereotype.Controller" />
         <context:exclude-filter type="annotation" expression="org.springframework.web.bind.annotation.RestController" />
     </context:component-scan>
@@ -61,7 +61,7 @@
     </bean>  
   
     <bean class="org.mybatis.spring.mapper.MapperScannerConfigurer">  
-        <property name="basePackage"  value="com.DocSystem.dao,com.docsys.agent.repository,com.docsys.agent.session,com.docsys.agent.learning.repository" />
+        <property name="basePackage"  value="com.DocSystem.dao,com.DocSystem.agent.repository,com.DocSystem.agent.session,com.DocSystem.agent.learning.repository" />
         <property name="sqlSessionFactoryBeanName" value="sqlSessionFactory" />  
     </bean>  
     <!-- 配置事务管理器 -->  

@@ -1,0 +1,1057 @@
+package com.DocSystem.agent.orchestrator;
+
+import com.DocSystem.agent.client.DocSysClient;
+import com.DocSystem.agent.controller.AgentController;
+import com.DocSystem.agent.core.AgentContext;
+import com.DocSystem.agent.core.AgentResponse;
+import com.DocSystem.agent.entity.TaskEntity;
+import com.DocSystem.agent.evolution.EvolutionTrigger;
+import com.DocSystem.agent.evolution.ExperienceMemory;
+import com.DocSystem.agent.evolution.SelfDiagnostics;
+import com.DocSystem.agent.learning.service.CollaborativeFilteringService;
+import com.DocSystem.agent.learning.service.BehaviorTrackingService;
+import com.DocSystem.agent.learning.entity.Recommendation;
+import com.DocSystem.agent.llm.LLMService;
+import com.DocSystem.agent.skill.executor.SkillExecutorRegistry;
+import com.DocSystem.agent.nlu.IntentResult;
+import com.DocSystem.agent.nlu.LLMIntentParser;
+import com.DocSystem.agent.nlu.SkillIntentRegistry;
+import com.DocSystem.agent.orchestrator.TaskQueueService;
+import com.DocSystem.agent.orchestrator.reflection.OrchestrationLoop;
+import com.DocSystem.agent.orchestrator.reflection.ReflectionConfig;
+import com.DocSystem.agent.orchestrator.reflection.ReflectionEngine;
+import com.DocSystem.agent.orchestrator.reflection.Replanner;
+import com.DocSystem.agent.orchestrator.reflection.ErrorContext;
+import com.DocSystem.agent.skill.SkillManager;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
+
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
+/**
+ * MainAgent - Main orchestrator for dual-layer agent architecture
+ * 
+ * Responsibilities:
+ * 1. Task decomposition - break user requests into sub-tasks
+ * 2. Sub-agent orchestration - delegate to SubAgent instances
+ * 3. Result aggregation - combine results from sub-agents
+ * 4. Experience extraction - learn from successful executions
+ * 5. Collaborative learning - track behavior, get recommendations
+ */
+@Service
+public class MainAgent {
+    
+    private static final Logger log = LoggerFactory.getLogger(MainAgent.class);
+    private static final int MAX_PARALLEL_TASKS = 5;
+
+    @Value("${agent.task-timeout:60}")
+    private long taskTimeoutSeconds;
+
+    private long taskTimeoutMs() { return taskTimeoutSeconds * 1000L; }
+    
+    private final DocSysClient docSysClient;
+    private final SkillManager skillManager;
+    private final ExecutorService executor;
+    private final ConcurrentHashMap<String, SubAgent> subAgentPool;
+    
+    // 进化系统组件
+    private final ExperienceMemory experienceMemory;
+    private final SelfDiagnostics selfDiagnostics;
+    private EvolutionTrigger evolutionTrigger;
+    
+    // 协同学习系统组件
+    @Autowired
+    private CollaborativeFilteringService learningService;
+    
+    @Autowired
+    private BehaviorTrackingService behaviorTrackingService;
+    
+    @Autowired
+    private LLMService llmService;
+
+    @Autowired(required = false)
+    private SkillExecutorRegistry skillExecutorRegistry;
+
+    @Autowired(required = false)
+    private TaskQueueService taskQueueService;
+
+    // Reflection loop (off by default; see ReflectionConfig and plan T11)
+    @Autowired(required = false)
+    private ReflectionConfig reflectionConfig;
+
+    @Autowired(required = false)
+    private ReflectionEngine reflectionEngine;
+
+    @Autowired(required = false)
+    private Replanner replanner;
+    
+    public MainAgent(DocSysClient docSysClient) {
+        this.docSysClient = docSysClient;
+        this.skillManager = SkillManager.getInstance();
+        this.executor = Executors.newFixedThreadPool(MAX_PARALLEL_TASKS);
+        this.subAgentPool = new ConcurrentHashMap<>();
+        
+        // 初始化进化系统
+        this.experienceMemory = ExperienceMemory.getInstance();
+        this.selfDiagnostics = SelfDiagnostics.getInstance();
+        
+        log.info("MainAgent initialized with DocSysClient and Evolution System");
+    }
+
+    /**
+     * 启动时任务恢复 —— 合并部署后已废弃，不再自动调用。
+     *
+     * 原设计用于独立部署时扫描 agent_tasks 表、把中断的 pending/running 任务
+     * 重新入队重试。合并进 DocSys 后：Agent 主执行为同步（在 HTTP 请求线程内完成），
+     * Tomcat 崩溃即请求中断，是否继续应由用户在对话中决定，而非后台静默重跑
+     * （重跑还可能重复执行有副作用的操作）。且队列无后台消费者，重入队为空转。
+     * 故移除 @PostConstruct 触发；方法保留仅为兼容潜在的手动调用。
+     */
+    public void resumePendingTasks() {
+        if (taskQueueService == null) {
+            log.debug("TaskQueueService not available, skipping startup recovery");
+            return;
+        }
+        try {
+            List<TaskEntity> staleTasks = taskQueueService.getPendingOrRunningTasksForRecovery();
+            for (TaskEntity task : staleTasks) {
+                taskQueueService.reEnqueue(task);
+                log.info("Recovered task from startup: taskId={}, type={}, retryCount={}",
+                        task.getTaskId(), task.getTaskType(), task.getRetryCount());
+            }
+            if (!staleTasks.isEmpty()) {
+                log.info("Startup recovery: {} stale tasks re-enqueued", staleTasks.size());
+            }
+        } catch (Exception e) {
+            log.error("Failed to resume pending tasks on startup", e);
+        }
+    }
+
+    public void setLlmService(LLMService llmService) {
+        this.llmService = llmService;
+    }
+    
+    public void setLearningService(CollaborativeFilteringService learningService) {
+        this.learningService = learningService;
+    }
+    
+    public void setBehaviorTrackingService(BehaviorTrackingService behaviorTrackingService) {
+        this.behaviorTrackingService = behaviorTrackingService;
+    }
+
+    public void setTaskQueueService(TaskQueueService taskQueueService) {
+        this.taskQueueService = taskQueueService;
+    }
+
+    public void setEvolutionTrigger(EvolutionTrigger evolutionTrigger) {
+        this.evolutionTrigger = evolutionTrigger;
+    }
+    
+    /**
+     * Process user query - main entry point
+     * @param sessionInfo - SessionInfo object containing authenticated session details
+     *
+     * Best Practice: Use request-scoped DocSysClient instance to avoid thread-safety issues
+     */
+    public AgentResponse process(String userQuery, AgentContext context, Object sessionInfo) {
+        // 获取 per-session DocSysClient（如果已设置）
+        DocSysClient clientFromSession = null;
+        if (sessionInfo instanceof AgentController.SessionInfo) {
+            AgentController.SessionInfo info = (AgentController.SessionInfo) sessionInfo;
+            if (info.jsessionid != null) {
+                clientFromSession = docSysClient.copyWithSession(info.jsessionid, info.username);
+            }
+        }
+        return process(userQuery, context, sessionInfo, clientFromSession);
+    }
+
+    /**
+     * Process user query with explicit DocSysClient
+     * @param sessionInfo - SessionInfo object containing authenticated session details
+     * @param client - Per-session DocSysClient (from AgentController session pool)
+     */
+    public AgentResponse process(String userQuery, AgentContext context, Object sessionInfo, DocSysClient client) {
+        long startTime = System.currentTimeMillis();
+        log.info("MainAgent processing query: {} with sessionInfo: {}", userQuery, sessionInfo);
+
+        // 使用传入的 per-session DocSysClient，或创建新的
+        DocSysClient authenticatedClient = client != null ? client : this.docSysClient;
+
+        // 提取用户信息用于学习系统
+        String userId = extractUserId(sessionInfo);
+        String tenantId = extractTenantId(sessionInfo);
+
+        // Step 0: 尝试从协同学习系统获取推荐
+        List<Recommendation> recommendations = null;
+        if (userId != null && learningService != null) {
+            try {
+                recommendations = learningService.recommend(userId, 3);
+                if (recommendations != null && !recommendations.isEmpty()) {
+                    log.info("Got {} collaborative recommendations for user {}", recommendations.size(), userId);
+                }
+            } catch (Exception e) {
+                log.warn("Failed to get recommendations: {}", e.getMessage());
+            }
+        }
+
+        // Step 0.5: 从经验中识别意图
+        String recognizedIntent = experienceMemory.recognizeIntent(userQuery);
+        if (recognizedIntent != null) {
+            log.info("Recognized intent from experience: {}", recognizedIntent);
+        }
+
+        // Step 1: Task decomposition (shared by both OFF and ON paths)
+        final TaskDecomposition decomposition = decomposeTask(userQuery, context);
+        log.info("Decomposed into {} sub-tasks", decomposition.getSubTasks().size());
+
+        // 记录分解结果到经验系统
+        final String intent = recognizedIntent != null ? recognizedIntent : extractIntent(userQuery);
+        experienceMemory.recordDecomposition(userQuery, intent,
+            decomposition.getSubTasks().stream().map(SubTask::getId).collect(java.util.stream.Collectors.toList()), true);
+
+        // 追踪用户行为
+        if (userId != null && behaviorTrackingService != null) {
+            try {
+                behaviorTrackingService.trackBehavior(userId, tenantId, intent, null);
+            } catch (Exception e) {
+                log.warn("Failed to track behavior: {}", e.getMessage());
+            }
+        }
+
+        // Reflection switch: OFF (default) = byte-for-byte copy of pre-loop code,
+        // keeping E2E 696 zero-regression. ON = drive OrchestrationLoop.
+        final boolean reflectionOn = reflectionConfig != null
+            && reflectionConfig.isEnabled()
+            && reflectionEngine != null
+            && replanner != null;
+
+        if (reflectionOn) {
+            // ON path
+            try {
+                OrchestrationLoop loop = new OrchestrationLoop(
+                    reflectionConfig, reflectionEngine, replanner);
+                OrchestrationLoop.Outcome outcome = loop.run(
+                    userQuery, intent, decomposition,
+                    plan -> {
+                        try {
+                            TaskExecutionResult r = executeSubTasks(plan, context, authenticatedClient);
+                            boolean ok = r != null && r.getResultIds() != null
+                                && r.getResultIds().size() == plan.getSubTasks().size();
+                            return java.util.Optional.of(new OrchestrationLoop.StepResult(
+                                ok,
+                                ok ? null : new ErrorContext(
+                                    "EXECUTE_FAILED", "one-or-more-subtasks-failed", null,
+                                    r.getResultIds() == null ? "0" : String.valueOf(r.getResultIds().size())),
+                                r));
+                        } catch (Exception ex) {
+                            return java.util.Optional.of(new OrchestrationLoop.StepResult(
+                                false, new ErrorContext("EXCEPTION", ex.getMessage(), null, null), null));
+                        }
+                    });
+
+                AgentResponse response = outcome.response();
+                long duration = System.currentTimeMillis() - startTime;
+                response.withProcessingTime(duration);
+
+                experienceMemory.recordExecution(userQuery, intent, response.isSuccess(), duration,
+                    response.isSuccess() ? null : response.getMessage());
+                selfDiagnostics.recordExecution("task_decomposition", response.isSuccess(), duration);
+
+                if (response.isSuccess() && evolutionTrigger != null) {
+                    evolutionTrigger.onTaskSuccess(intent, userQuery, null);
+                }
+
+                if (userId != null && behaviorTrackingService != null) {
+                    try {
+                        behaviorTrackingService.trackTaskResult(userId, tenantId, intent,
+                            response.isSuccess(), duration);
+                    } catch (Exception e) {
+                        log.warn("Failed to track task result: {}", e.getMessage());
+                    }
+                }
+
+                if (recommendations != null && !recommendations.isEmpty() && !response.isSuccess()) {
+                    response.addMetadata("recommendations", recommendations);
+                }
+
+                return response;
+            } catch (Exception e) {
+                log.error("Error processing query (reflection ON path)", e);
+                experienceMemory.recordExecution(userQuery, "unknown", false,
+                    System.currentTimeMillis() - startTime, e.getMessage());
+                selfDiagnostics.recordExecution("task_decomposition", false,
+                    System.currentTimeMillis() - startTime);
+
+                if (userId != null && behaviorTrackingService != null) {
+                    try {
+                        behaviorTrackingService.trackTaskResult(userId, tenantId, "unknown", false,
+                            System.currentTimeMillis() - startTime);
+                    } catch (Exception ex) {
+                        log.warn("Failed to track failure: {}", ex.getMessage());
+                    }
+                }
+                return AgentResponse.error("Failed to process query: " + e.getMessage());
+            }
+        }
+
+        // OFF path: byte-for-byte copy of pre-loop behaviour
+        try {
+            // Step 2: Execute sub-tasks with authenticated client
+            TaskExecutionResult result = executeSubTasks(decomposition, context, authenticatedClient);
+
+            // Step 3: Aggregate results
+            AgentResponse response = aggregateResults(result);
+            long duration = System.currentTimeMillis() - startTime;
+            response.withProcessingTime(duration);
+
+            // 记录执行结果到进化系统
+            experienceMemory.recordExecution(userQuery, intent, response.isSuccess(), duration,
+                response.isSuccess() ? null : response.getMessage());
+            selfDiagnostics.recordExecution("task_decomposition", response.isSuccess(), duration);
+
+            // 触发自我进化机制（异步，不阻塞主流程）
+            if (response.isSuccess() && evolutionTrigger != null) {
+                evolutionTrigger.onTaskSuccess(intent, userQuery, null);
+            }
+
+            // 记录任务结果到协同学习系统
+            if (userId != null && behaviorTrackingService != null) {
+                try {
+                    behaviorTrackingService.trackTaskResult(userId, tenantId, intent, response.isSuccess(), duration);
+                } catch (Exception e) {
+                    log.warn("Failed to track task result: {}", e.getMessage());
+                }
+            }
+
+            // 如果有推荐且任务失败，添加推荐信息到响应
+            if (recommendations != null && !recommendations.isEmpty() && !response.isSuccess()) {
+                response.addMetadata("recommendations", recommendations);
+            }
+
+            return response;
+
+        } catch (Exception e) {
+            log.error("Error processing query", e);
+
+            // 记录失败
+            experienceMemory.recordExecution(userQuery, "unknown", false,
+                System.currentTimeMillis() - startTime, e.getMessage());
+            selfDiagnostics.recordExecution("task_decomposition", false,
+                System.currentTimeMillis() - startTime);
+
+            // 记录失败到协同学习系统
+            if (userId != null && behaviorTrackingService != null) {
+                try {
+                    behaviorTrackingService.trackTaskResult(userId, tenantId, "unknown", false,
+                        System.currentTimeMillis() - startTime);
+                } catch (Exception ex) {
+                    log.warn("Failed to track failure: {}", ex.getMessage());
+                }
+            }
+
+            return AgentResponse.error("Failed to process query: " + e.getMessage());
+        }
+    }
+    
+    /**
+     * 从sessionInfo提取用户ID
+     */
+    private String extractUserId(Object sessionInfo) {
+        if (sessionInfo instanceof AgentController.SessionInfo) {
+            return ((AgentController.SessionInfo) sessionInfo).username;
+        }
+        return null;
+    }
+    
+    /**
+     * 从sessionInfo提取租户ID
+     */
+    private String extractTenantId(Object sessionInfo) {
+        if (sessionInfo instanceof AgentController.SessionInfo) {
+            return ((AgentController.SessionInfo) sessionInfo).tenantId;
+        }
+        return null;
+    }
+    
+    /**
+     * 简单提取意图
+     */
+    private String extractIntent(String query) {
+        query = query.toLowerCase();
+        if (query.startsWith("list") || query.contains("列出")) return "list";
+        if (query.startsWith("search") || query.contains("搜索") || query.contains("找")) return "search";
+        if (query.startsWith("get") || query.startsWith("获取")) return "get";
+        if (query.startsWith("create") || query.startsWith("add") || query.contains("创建") || query.contains("添加")) return "create";
+        if (query.startsWith("delete") || query.contains("删除")) return "delete";
+        if (query.startsWith("chat") || query.contains("聊天") || query.contains("问")) return "chat";
+        if (query.startsWith("help") || query.contains("帮助")) return "help";
+        return "unknown";
+    }
+    
+    /**
+     * Decompose user task into smaller sub-tasks
+     */
+    private TaskDecomposition decomposeTask(String userQuery, AgentContext context) {
+        TaskDecomposition decomposition = new TaskDecomposition();
+
+        // Keep original query for Chinese matching, normalize only for English commands
+        String originalQuery = userQuery.trim();
+        String query = originalQuery.toLowerCase();
+        
+        log.info("DecomposeTask: originalQuery={}, query={}", originalQuery, query);
+
+        // Parse command type and arguments
+        // Use max 8 parts to handle commands with many parameters (e.g., add-doc)
+        String[] parts = userQuery.trim().split("\\s+", 8);
+        String command = parts[0].toLowerCase();
+
+        // Handle compound commands like "create-repos", "list-docs", "get-doc"
+        // Extract base command if it contains hyphen (e.g., "create-repos" -> "create")
+        String baseCommand = command.contains("-") ? command.split("-")[0] : command;
+
+        String arg1 = parts.length > 1 ? parts[1] : "";
+        String arg2 = parts.length > 2 ? parts[2] : "";
+        // Additional arguments for complex commands
+        String arg3 = parts.length > 3 ? parts[3] : "";
+        String arg4 = parts.length > 4 ? parts[4] : "";
+        String arg5 = parts.length > 5 ? parts[5] : "";
+        String arg6 = parts.length > 6 ? parts[6] : "";
+        String arg7 = parts.length > 7 ? parts[7] : "";
+
+        // Use BOTH lowercase query (for English) and original query (for Chinese)
+        String lowerQuery = query;
+        Map<String, String> params = new HashMap<>();
+
+        // Check if the query starts with a known English command keyword
+        boolean hasEnglishCommandIntent = false;
+        String[] englishCommands = {"list", "create", "add", "delete", "remove", "search", "upload", "download", "get", "set", "whoami", "help", "chat"};
+        for (String cmd : englishCommands) {
+            if (lowerQuery.startsWith(cmd) && (lowerQuery.length() == cmd.length() || !Character.isLetterOrDigit(lowerQuery.charAt(cmd.length())))) {
+                hasEnglishCommandIntent = true;
+                break;
+            }
+        }
+
+        // Check if it's a compound command like "list-repos", "create-repos"
+        boolean isCompoundCommand = false;
+        String[] compoundCommands = {"create-repos", "add-repos", "list-repos", "list-docs", "add-doc",
+            "delete-doc", "delete-repos", "get-doc", "get-repos", "rename-doc", "copy-doc", "move-doc",
+            "download-doc", "search-doc", "search-in-repo", "repos-info", "doc-history", "upload-doc",
+            "rename-repos", "copy-repos", "lock-doc", "unlock-doc", "backup-repos", "backup"};
+        for (String cc : compoundCommands) {
+            if (lowerQuery.startsWith(cc)) {
+                isCompoundCommand = true;
+                break;
+            }
+        }
+
+        // Route: compound commands → switch (semantics are unambiguous)
+        // ALL OTHER queries → LLM NLU PRIMARY (regex is ONLY auxiliary when LLM is unavailable)
+        if (isCompoundCommand) {
+            log.info("Detected compound command intent: query={}", lowerQuery);
+            // command stays as-is, first switch handles it
+        } else {
+            // EVERYTHING ELSE (English, Chinese, mixed, partial) → LLM NLU is MANDATORY
+            log.info("Routing to LLM NLU (mandatory): query={}", originalQuery);
+            command = "nlu";
+        }
+
+        // /init-auth command — generate API key (must be before /init check)
+        if (originalQuery.startsWith("/init-auth")) {
+            command = "init-auth";
+        }
+        // /init command — sync DocSys LLM config into Agent at runtime
+        else if (originalQuery.startsWith("/init")) {
+            command = "init";
+        }
+
+        if ("create-repos".equals(command) || "add-repos".equals(command)) {
+                log.info("Processing 'create-repos' compound command, args: name={}, rest={}", arg1, arg2);
+                // create-repos <name> [path] [desc] [type] [verCtrl]
+                // arg2 format: "path desc type verCtrl" (path is first token after name)
+                // Parse: "RealTestRepo001 F:/TestRepo001" -> name=RealTestRepo001, path=F:/TestRepo001
+                String[] extraArgs = arg2 != null ? arg2.split("\\s+") : new String[0];
+                params.put("name", arg1);
+                // extraArgs[0]=path, [1]=desc, [2]=type, [3]=verCtrl
+                params.put("desc", extraArgs.length > 1 ? extraArgs[1] : null);
+                params.put("path", extraArgs.length > 0 ? extraArgs[0] : null);
+                params.put("type", extraArgs.length > 2 ? extraArgs[2] : null);
+                params.put("verCtrl", extraArgs.length > 3 ? extraArgs[3] : null);
+                decomposition.addSubTask(new SubTask("add_repos", "Add repository", params));
+                return decomposition;
+            } else if ("backup-repos".equals(command)) {
+                log.info("Processing 'backup-repos' compound command with arg1={}, arg2={}", arg1, arg2);
+                params.put("vid", arg1);
+                params.put("path", arg2);
+                decomposition.addSubTask(new SubTask("backup_repos", "Backup repository", params));
+                return decomposition;
+            } else if ("list-repos".equals(command)) {
+                decomposition.addSubTask(new SubTask("list_repos", "List repositories"));
+                return decomposition;
+            } else if ("list-docs".equals(command)) {
+                // list-docs <vid> [pid] [path]
+                params.put("vid", arg1);
+                params.put("pid", arg2);
+                params.put("path", arg3);
+                decomposition.addSubTask(new SubTask("get_doc_list", "List documents", params));
+                return decomposition;
+            } else if ("add-doc".equals(command)) {
+                // add-doc <vid> <pid> <path> <name> <type> [content]
+                params.put("vid", arg1);
+                params.put("pid", arg2);
+                params.put("path", arg3);
+                params.put("name", arg4);
+                params.put("type", arg5);
+                params.put("content", arg6);
+                decomposition.addSubTask(new SubTask("add_doc", "Add document", params));
+                return decomposition;
+            } else if ("delete-doc".equals(command)) {
+                // delete-doc <vid> <docId> [pid] [path] [name]
+                params.put("vid", arg1);
+                params.put("docId", arg2);
+                params.put("pid", arg3);
+                params.put("path", arg4);
+                params.put("name", arg5);
+                decomposition.addSubTask(new SubTask("delete_doc", "Delete document", params));
+                return decomposition;
+            } else if ("delete-repos".equals(command)) {
+                // delete-repos <vid>
+                params.put("name", arg1); // Uses name but expects vid
+                decomposition.addSubTask(new SubTask("delete_repos", "Delete repository", params));
+                return decomposition;
+            } else if ("get-doc".equals(command)) {
+                // get-doc <vid> <docId> [pid] [path] [name]
+                params.put("vid", arg1);
+                params.put("docId", arg2);
+                params.put("pid", arg3);
+                params.put("path", arg4);
+                params.put("name", arg5);
+                decomposition.addSubTask(new SubTask("get_doc", "Get document info", params));
+                return decomposition;
+            } else if ("get-repos".equals(command) || "repos-info".equals(command)) {
+                // repos-info <vid>
+                params.put("vid", arg1);
+                decomposition.addSubTask(new SubTask("get_repos", "Get repository info", params));
+                return decomposition;
+            } else if ("rename-doc".equals(command)) {
+                // rename-doc <vid> <docId> [pid] [path] [name] <newName>
+                params.put("vid", arg1);
+                params.put("docId", arg2);
+                params.put("pid", arg3);
+                params.put("path", arg4);
+                params.put("name", arg5);
+                params.put("newName", arg6);
+                decomposition.addSubTask(new SubTask("rename_doc", "Rename document", params));
+                return decomposition;
+            } else if ("copy-doc".equals(command)) {
+                // copy-doc <vid> <docId> [targetPid] [targetPath] [newName]
+                params.put("vid", arg1);
+                params.put("docId", arg2);
+                params.put("targetPid", arg3);
+                params.put("targetPath", arg4);
+                params.put("newName", arg5);
+                decomposition.addSubTask(new SubTask("copy_doc", "Copy document", params));
+                return decomposition;
+            } else if ("move-doc".equals(command)) {
+                // move-doc <vid> <docId> [targetPid] [targetPath]
+                params.put("vid", arg1);
+                params.put("docId", arg2);
+                params.put("targetPid", arg3);
+                params.put("targetPath", arg4);
+                decomposition.addSubTask(new SubTask("move_doc", "Move document", params));
+                return decomposition;
+            } else if ("download-doc".equals(command)) {
+                // download-doc <vid> <docId> [pid] [path] [name]
+                params.put("vid", arg1);
+                params.put("docId", arg2);
+                params.put("pid", arg3);
+                params.put("path", arg4);
+                params.put("name", arg5);
+                decomposition.addSubTask(new SubTask("download_doc", "Download document", params));
+                return decomposition;
+            } else if ("search-doc".equals(command)) {
+                // search-doc <query> [vid]
+                params.put("query", arg1);
+                params.put("vid", arg2);
+                decomposition.addSubTask(new SubTask("search_doc", "Search documents", params));
+                return decomposition;
+            } else if ("search-in-repo".equals(command)) {
+                // search-in-repo <vid> <query>
+                params.put("vid", arg1);
+                params.put("query", arg2);
+                decomposition.addSubTask(new SubTask("search_in_repo", "Search in repository", params));
+                return decomposition;
+            } else if ("doc-history".equals(command)) {
+                // doc-history <vid> <docId>
+                params.put("vid", arg1);
+                params.put("docId", arg2);
+                decomposition.addSubTask(new SubTask("doc_history", "Document history", params));
+                return decomposition;
+            } else if ("upload-doc".equals(command)) {
+                // upload-doc <vid> [pid] [path] <file>
+                params.put("vid", arg1);
+                params.put("pid", arg2);
+                params.put("path", arg3);
+                params.put("name", arg4);
+                decomposition.addSubTask(new SubTask("upload_doc", "Upload document", params));
+                return decomposition;
+            } else if ("rename-repos".equals(command)) {
+                // rename-repos <reposId> <newName>
+                params.put("reposId", arg1);
+                params.put("name", arg2);
+                decomposition.addSubTask(new SubTask("update_repos", "Rename repository", params));
+                return decomposition;
+            } else if ("copy-repos".equals(command)) {
+                // copy-repos <vid> <newName> [newPath]
+                params.put("vid", arg1);
+                params.put("name", arg2);
+                params.put("path", arg3);
+                decomposition.addSubTask(new SubTask("copy_repos", "Copy repository", params));
+                return decomposition;
+            }
+
+        switch (command) {
+            // ========== ENGLISH COMMANDS (non-compound) ==========
+            case "list":
+                log.info("Processing 'list' command with arg1={}, arg2={}", arg1, arg2);
+                if ("repos".equals(arg1) || "repositories".equals(arg1) || arg1.isEmpty()) {
+                    decomposition.addSubTask(new SubTask("list_repos", "List repositories"));
+                } else if ("docs".equals(arg1) || "documents".equals(arg1)) {
+                    params.put("vid", arg2.isEmpty() ? null : arg2);
+                    decomposition.addSubTask(new SubTask("get_doc_list", "List documents", params));
+                } else if ("models".equals(arg1) || "ai-models".equals(arg1)) {
+                    decomposition.addSubTask(new SubTask("list_models", "List AI models"));
+                } else {
+                    // Default to list repos
+                    decomposition.addSubTask(new SubTask("list_repos", "List repositories"));
+                }
+                break;
+                
+            case "create":
+            case "add":
+                log.info("Processing 'create/add' command with arg1={}, arg2={}", arg1, arg2);
+                if ("repos".equals(arg1) || "repo".equals(arg1)) {
+                    // create-repos <name> [desc] [path] [type] [verCtrl]
+                    params.put("name", arg2);
+                    decomposition.addSubTask(new SubTask("add_repos", "Add repository", params));
+                } else if ("doc".equals(arg1) || "document".equals(arg1)) {
+                    params.put("name", arg2);
+                    decomposition.addSubTask(new SubTask("add_doc", "Add document", params));
+                }
+                break;
+                
+            case "delete":
+            case "remove":
+                log.info("Processing 'delete/remove' command with arg1={}, arg2={}", arg1, arg2);
+                if ("repos".equals(arg1) || "repo".equals(arg1)) {
+                    params.put("name", arg2);
+                    decomposition.addSubTask(new SubTask("delete_repos", "Delete repository", params));
+                } else if ("doc".equals(arg1) || "document".equals(arg1)) {
+                    params.put("docId", arg2);
+                    decomposition.addSubTask(new SubTask("delete_doc", "Delete document", params));
+                }
+                break;
+                
+            case "search":
+                log.info("Processing 'search' command with arg1={}", arg1);
+                params.put("query", arg1);
+                decomposition.addSubTask(new SubTask("search_doc", "Search documents", params));
+                break;
+                
+            case "upload":
+                log.info("Processing 'upload' command");
+                decomposition.addSubTask(new SubTask("upload_doc", "Upload document"));
+                break;
+                
+            case "download":
+                log.info("Processing 'download' command with arg1={}", arg1);
+                params.put("docId", arg1);
+                decomposition.addSubTask(new SubTask("download_doc", "Download document", params));
+                break;
+            
+            case "get":
+                log.info("Processing 'get' command with arg1={}, arg2={}", arg1, arg2);
+                if ("doc".equals(arg1) && !arg2.isEmpty()) {
+                    // get-doc <vid> <docId>
+                    String[] ids = arg2.split("\\s+", 2);
+                    params.put("vid", ids.length > 0 ? ids[0] : null);
+                    params.put("docId", ids.length > 1 ? ids[1] : null);
+                    decomposition.addSubTask(new SubTask("get_doc", "Get document info", params));
+                } else if ("repos".equals(arg1) || "repo".equals(arg1)) {
+                    params.put("vid", arg2);
+                    decomposition.addSubTask(new SubTask("repos_info", "Get repository info", params));
+                }
+                break;
+                
+            case "whoami":
+                log.info("Processing 'whoami' command");
+                decomposition.addSubTask(new SubTask("whoami", "Show current user"));
+                break;
+                
+            case "chat":
+                log.info("Processing 'chat' command");
+                params.put("message", arg1 + " " + arg2);
+                decomposition.addSubTask(new SubTask("chat", "Chat with AI", params));
+                break;
+                
+            case "help":
+                log.info("Processing 'help' command");
+                decomposition.addSubTask(new SubTask("help", "Show help"));
+                break;
+
+            case "init":
+                log.info("Processing '/init' — syncing LLM config from DocSys");
+                decomposition.addSubTask(new SubTask("init-llm", "Initialize Agent LLM from DocSys config"));
+                break;
+
+            case "init-auth":
+                log.info("Processing '/init-auth' — generating API key");
+                decomposition.addSubTask(new SubTask("init-auth", "Generate API key from DocSys admin session"));
+                break;
+
+            // ========== NATURAL LANGUAGE (NLU) ==========
+            case "nlu": {
+                log.info("In NLU case, checking patterns...");
+                // ========== LLM INTENT PARSING (P0 Enhancement) ==========
+                // Try LLM first for structured intent + entity extraction
+                IntentResult llmResult = LLMIntentParser.parse(userQuery, llmService);
+                Map<String, String> llmParams = new HashMap<>(llmResult.getEntities());
+                if (llmResult.isFromLLM() && llmResult.getConfidence() >= 0.6f) {
+                    log.info("LLM intent={}, subTaskType={}, confidence={}, reasoning={}",
+                            llmResult.getIntent(), llmResult.getSubTaskType(),
+                            llmResult.getConfidence(), llmResult.getReasoning());
+                    String subTask = llmResult.getSubTaskType();
+                    if (subTask != null && !subTask.isEmpty()) {
+                        decomposition.addSubTask(new SubTask(subTask,
+                                "LLM: " + llmResult.getIntent(), llmParams));
+                    } else {
+                        llmParams.put("message", userQuery);
+                        decomposition.addSubTask(new SubTask("chat",
+                                "Chat with AI", llmParams));
+                    }
+                    break; // LLM succeeded with high confidence
+                }
+
+                // ========== UNIFIED SKILL TRIGGER MATCHING (ALL SKILLS) ==========
+                // Agent-skill 编排思想：统一 trigger 匹配，同时覆盖内置技能和外部技能
+                // EnhancedSkillManager 包含内置技能定义，getMatchScore() 提供 trigger 打分
+                // Built-in 技能走对应 handler，External 技能走 ExternalSkillExecutor
+                com.DocSystem.agent.skill.EnhancedSkill allSkills = com.DocSystem.agent.skill.EnhancedSkillManager.getInstance().findBestSkill(userQuery);
+                if (allSkills != null && allSkills.getMatchScore(userQuery) >= 0.6) {
+                    String matchedId = allSkills.getId();
+                    log.info("Unified trigger matched '{}' with score={} (LLM confidence was {})",
+                            matchedId, allSkills.getMatchScore(userQuery), llmResult.getConfidence());
+                    decomposition.addSubTask(new SubTask(matchedId, "Skill: " + allSkills.getName(), llmParams));
+                    break;
+                }
+
+                // ========== REGEX FALLBACK NLU ==========
+                // Use original query (not lowercase) for Chinese pattern matching
+                String nluQuery = originalQuery.toLowerCase();
+                log.info("NLU regex fallback for: {}", nluQuery);
+                
+                // ========== 搜索相关 ==========
+                // 模式1: "查询xxx的资料" / "搜索xxx" / "找xxx相关文档" / "帮我找" / "查一下" -> 搜索
+                if (nluQuery.contains("查询") || nluQuery.contains("搜索") || nluQuery.contains("找") || 
+                    nluQuery.contains("查找") || nluQuery.contains("检索") ||
+                    nluQuery.contains("资料") || nluQuery.contains("文档") || nluQuery.contains("文件") ||
+                    nluQuery.contains("帮我找") || nluQuery.contains("查一下")) {
+                    String searchQuery = extractSearchQuery(userQuery);
+                    params.put("query", searchQuery);
+                    params.put("loadToContext", "true");
+                    decomposition.addSubTask(new SubTask("search_and_load", "Search and load documents to context", params));
+                }
+                
+                // ========== 内容生成相关 ==========
+                // 模式2: "撰写xxx综述" / "写xxx总结" / "生成xxx报告" / "帮我写" / "总结一下" -> RAG + 生成
+                if (nluQuery.contains("撰写") || nluQuery.contains("写") || nluQuery.contains("生成") || 
+                    nluQuery.contains("综述") || nluQuery.contains("总结") || nluQuery.contains("报告") ||
+                    nluQuery.contains("分析") || nluQuery.contains("帮我写") || nluQuery.contains("总结一下")) {
+                    String topic = extractTopic(userQuery);
+                    params.put("topic", topic);
+                    params.put("generate", "true");
+                    decomposition.addSubTask(new SubTask("generate_summary", "Generate summary from documents", params));
+                }
+                
+                // ========== 问答相关 ==========
+                // 模式3: "关于xxx" / "我想了解xxx" / "是什么" / "怎么回事" / "介绍一下" -> 搜索 + 回答
+                if (nluQuery.contains("关于") || nluQuery.contains("了解") || nluQuery.contains("是什么") ||
+                    nluQuery.contains("怎么回事") || nluQuery.contains("介绍") || nluQuery.contains("说一下") ||
+                    nluQuery.contains("解释一下")) {
+                    String topic = extractTopic(userQuery);
+                    params.put("topic", topic);
+                    params.put("query", topic);
+                    decomposition.addSubTask(new SubTask("search_and_answer", "Search and answer", params));
+                }
+                
+                // ========== 仓库相关 (优先级高，放在聊天之前) ==========
+                // 模式4: 仓库列表 - "查看仓库" / "有哪些仓库" / "仓库列表" / "列出仓库" / "我的仓库"
+                // 注意：必须放在聊天模式之前，因为"列出仓库"包含"问"字，会误匹配聊天模式
+                if (nluQuery.contains("仓库") || nluQuery.contains("库列表") || nluQuery.contains("有哪些") ||
+                    nluQuery.contains("查看") || nluQuery.contains("列出") || nluQuery.contains("我的")) {
+                    if (nluQuery.contains("仓库") || nluQuery.contains("库")) {
+                        log.info("Matched list_repos pattern, query={}", nluQuery);
+                        decomposition.addSubTask(new SubTask("list_repos", "List repositories"));
+                        break; // 已匹配仓库相关，不再继续其他模式
+                    }
+                }
+                
+                // ========== 文档操作相关 ==========
+                // 模式5: 上传/添加文档
+                if (nluQuery.contains("upload") || nluQuery.contains("上传") || nluQuery.contains("添加") ||
+                    nluQuery.contains("提交") || nluQuery.contains("新建") || nluQuery.contains("创建")) {
+                    decomposition.addSubTask(new SubTask("upload_doc", "Upload document"));
+                }
+                
+                // 模式6: 下载文档
+                if (nluQuery.contains("download") || nluQuery.contains("下载") || nluQuery.contains("获取")) {
+                    decomposition.addSubTask(new SubTask("download_doc", "Download document"));
+                }
+                
+                // 模式7: 删除文档
+                if (nluQuery.contains("删除") || nluQuery.contains("remove") || nluQuery.contains("delete")) {
+                    if (nluQuery.contains("仓库")) {
+                        decomposition.addSubTask(new SubTask("delete_repos", "Delete repository"));
+                    } else {
+                        decomposition.addSubTask(new SubTask("delete_doc", "Delete document"));
+                    }
+                }
+                
+                // ========== 用户相关 ==========
+                // 模式8: 用户信息 - "我是谁" / "我的信息" / "当前用户"
+                if (nluQuery.contains("whoami") || nluQuery.contains("用户") || nluQuery.contains("我是谁") ||
+                    nluQuery.contains("我的信息") || nluQuery.contains("当前用户") || nluQuery.contains("账号")) {
+                    decomposition.addSubTask(new SubTask("whoami", "Show current user"));
+                }
+                
+                // ========== AI 聊天 ==========
+                // 模式9: AI聊天 - "聊天" / "问答" / "对话" / "问个问题" / "ai" / "助手"
+                // 注意：避免单独匹配"问"字（可能是"列出"等词的组成部分），需要更具体的上下文
+                if (nluQuery.contains("chat") || nluQuery.contains("ai") ||
+                    nluQuery.contains("助手") || nluQuery.contains("问答") || nluQuery.contains("对话") ||
+                    nluQuery.contains("问问题") || nluQuery.contains("问一下") || nluQuery.contains("问答") ||
+                    nluQuery.contains("问我") || nluQuery.contains("问你") || nluQuery.contains("答") ||
+                    (nluQuery.contains("问") && nluQuery.length() < 10)) { // 短句中包含"问"才匹配
+                    params.put("message", userQuery);
+                }
+
+                // ========== 网络搜索 ==========
+                // 模式10: 网络搜索 - 当本地没有结果时的优雅降级
+                // "搜索网页" / "网上搜索" / "百度搜索" / "网络查询" / "网上查一下"
+                if (nluQuery.contains("网络搜索") || nluQuery.contains("网上搜索") ||
+                    nluQuery.contains("网页搜索") || nluQuery.contains("百度") ||
+                    nluQuery.contains("搜索网页") || nluQuery.contains("网上查") ||
+                    nluQuery.contains("网络查询") || nluQuery.contains("web search")) {
+                    String searchQuery = extractSearchQuery(userQuery);
+                    params.put("query", searchQuery);
+                    decomposition.addSubTask(new SubTask("web_search", "Web search fallback", params));
+                }
+                
+                // ========== 帮助 ==========
+                // 模式10: 帮助 - "帮助" / "help" / "怎么用" / "使用方法"
+                if (nluQuery.contains("help") || nluQuery.contains("帮助") || nluQuery.contains("怎么用") ||
+                    nluQuery.contains("使用方法") || nluQuery.contains("命令") || nluQuery.contains("?") ||
+                    nluQuery.contains("？")) {
+                    decomposition.addSubTask(new SubTask("help", "Show help"));
+                }
+                
+                // Default: use LLM for natural language
+                if (decomposition.getSubTasks().isEmpty()) {
+                    params.put("message", userQuery);
+                    decomposition.addSubTask(new SubTask("chat", "Chat with AI", params));
+                }
+                break;
+            }
+        }
+
+        // Default fallback: unrecognized commands → chat with LLM
+        if (decomposition.getSubTasks().isEmpty()) {
+            log.info("No sub-tasks matched for '{}', falling back to chat", userQuery);
+            params.put("message", userQuery);
+            decomposition.addSubTask(new SubTask("chat", "Chat with AI", params));
+        }
+
+        return decomposition;
+    }
+    
+    /**
+     * Execute sub-tasks in parallel
+     * @param authenticatedClient - Request-scoped DocSysClient with session already set
+     */
+    private TaskExecutionResult executeSubTasks(TaskDecomposition decomposition, AgentContext context, DocSysClient authenticatedClient) {
+        TaskExecutionResult result = new TaskExecutionResult();
+        for (SubTask subTask : decomposition.getSubTasks()) {
+                String taskId = null;
+                if (taskQueueService != null) {
+                    try {
+                        String metadata = String.format(
+                            "{\"traceId\":\"%s\",\"sessionId\":\"%s\",\"subTaskId\":\"%s\"}",
+                            org.slf4j.MDC.get("traceId"),
+                            context != null ? context.getSessionId() : "unknown",
+                            subTask.getId()
+                        );
+                        Map<String, String> params = new HashMap<>();
+                        if (subTask.getParams() != null) params.putAll(subTask.getParams());
+                        params.put("taskName", subTask.getId());
+                        taskId = taskQueueService.enqueue(subTask.getId(), null, params, metadata);
+                        taskQueueService.markRunning(taskId);
+                    } catch (Exception e) {
+                        log.warn("Failed to track task in queue service: {}", e.getMessage());
+                    }
+                }
+
+                try {
+                    SubAgent subAgent = getOrCreateSubAgent(subTask.getId());
+                    AgentResponse subResult = subAgent.execute(subTask, context, authenticatedClient, null);
+                    result.addResult(subTask.getId(), subResult);
+
+                    if (taskQueueService != null && taskId != null) {
+                        if (subResult.isSuccess()) {
+                            taskQueueService.markCompleted(taskId, subResult.getMessage());
+                        } else {
+                            taskQueueService.markFailed(taskId, subResult.getMessage());
+                        }
+                    }
+                } catch (Exception e) {
+                    log.error("Failed to execute sub-task: {}", subTask.getId(), e);
+                    result.addResult(subTask.getId(), AgentResponse.error(e.getMessage()));
+                    if (taskQueueService != null && taskId != null) {
+                        taskQueueService.markFailed(taskId, e.getMessage());
+                    }
+                }
+            }
+
+        return result;
+    }
+    
+    /**
+     * Aggregate results from sub-tasks
+     */
+    private AgentResponse aggregateResults(TaskExecutionResult executionResult) {
+        StringBuilder aggregated = new StringBuilder();
+        
+        for (String taskId : executionResult.getResultIds()) {
+            AgentResponse subResult = executionResult.getResult(taskId);
+            if (subResult.isSuccess()) {
+                aggregated.append(subResult.getMessage()).append("\n");
+            } else {
+                aggregated.append("Error in ").append(taskId).append(": ").append(subResult.getMessage()).append("\n");
+            }
+        }
+        
+        return AgentResponse.ok(aggregated.toString());
+    }
+    
+    /**
+     * Get or create a sub-agent from pool
+     */
+    private SubAgent getOrCreateSubAgent(String taskId) {
+        return subAgentPool.computeIfAbsent(taskId,
+            k -> {
+                SubAgent agent = new SubAgent(taskId, skillManager);
+                if (llmService != null) {
+                    agent.setLlmService(llmService);
+                }
+                if (skillExecutorRegistry != null) {
+                    agent.setSkillExecutorRegistry(skillExecutorRegistry);
+                }
+                return agent;
+            });
+    }
+    
+    /**
+     * Shutdown agent resources
+     */
+    public void shutdown() {
+        log.info("Shutting down MainAgent");
+        executor.shutdown();
+        subAgentPool.clear();
+    }
+    
+    // ========== NATURAL LANGUAGE HELPERS ==========
+    
+    /**
+     * 从自然语言中提取搜索关键词
+     * 例如: "查询项目的资料" -> "项目"
+     *      "搜索关于合同的文件" -> "合同"
+     */
+    private String extractSearchQuery(String userQuery) {
+        // 移除常见的搜索前缀
+        String query = userQuery.toLowerCase()
+            .replaceAll("查询", "")
+            .replaceAll("搜索", "")
+            .replaceAll("找", "")
+            .replaceAll("资料", "")
+            .replaceAll("文档", "")
+            .replaceAll("文件", "")
+            .replaceAll("相关的", "")
+            .replaceAll("关于", "")
+            .replaceAll("\\s+", " ")
+            .trim();
+        
+        // 如果清理后为空，返回原查询
+        return query.isEmpty() ? userQuery : query;
+    }
+    
+    /**
+     * 从自然语言中提取主题/话题
+     * 例如: "撰写项目综述" -> "项目"
+     *      "生成合同分析报告" -> "合同分析"
+     */
+    private String extractTopic(String userQuery) {
+        String query = userQuery.toLowerCase();
+        
+        // 移除生成类动词前缀
+        String[] prefixes = {"撰写", "写", "生成", "制作", "创建"};
+        for (String prefix : prefixes) {
+            query = query.replace(prefix, "");
+        }
+        
+        // 移除文档类型后缀
+        String[] suffixes = {"综述", "总结", "报告", "分析", "文章", "文档"};
+        for (String suffix : suffixes) {
+            query = query.replace(suffix, "");
+        }
+        
+        query = query.replaceAll("\\s+", " ").trim();
+        
+        return query.isEmpty() ? userQuery : query;
+    }
+    
+    // Inner classes for task management
+    public static class TaskDecomposition {
+        private final java.util.List<SubTask> subTasks = new java.util.ArrayList<>();
+        
+        public void addSubTask(SubTask task) {
+            subTasks.add(task);
+        }
+        
+        public java.util.List<SubTask> getSubTasks() {
+            return subTasks;
+        }
+    }
+    
+    private static class TaskExecutionResult {
+        private final ConcurrentHashMap<String, AgentResponse> results = new ConcurrentHashMap<>();
+        
+        public void addResult(String taskId, AgentResponse result) {
+            results.put(taskId, result);
+        }
+        
+        public AgentResponse getResult(String taskId) {
+            return results.get(taskId);
+        }
+        
+        public java.util.Set<String> getResultIds() {
+            return results.keySet();
+        }
+    }
+}

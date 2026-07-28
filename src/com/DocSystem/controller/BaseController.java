@@ -14766,8 +14766,8 @@ public class BaseController  extends BaseFunction{
 				Log.info("triggerAgentInit() WebApplicationContext 不可用，跳过 Agent 初始化");
 				return;
 			}
-			com.docsys.agent.config.AgentInitService agentInit =
-				wac.getBean(com.docsys.agent.config.AgentInitService.class);
+			com.DocSystem.agent.config.AgentInitService agentInit =
+				wac.getBean(com.DocSystem.agent.config.AgentInitService.class);
 			agentInit.initAfterDocSysReady();
 		} catch (Exception e) {
 			Log.info("triggerAgentInit() Agent 初始化失败（不影响 DocSys）: " + e.getMessage());

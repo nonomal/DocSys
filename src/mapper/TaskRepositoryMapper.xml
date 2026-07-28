@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
-<mapper namespace="com.docsys.agent.repository.TaskRepository">
+<mapper namespace="com.DocSystem.agent.repository.TaskRepository">
 
-    <resultMap id="TaskEntityResultMap" type="com.docsys.agent.entity.TaskEntity">
+    <resultMap id="TaskEntityResultMap" type="com.DocSystem.agent.entity.TaskEntity">
         <id property="id" column="id"/>
         <result property="taskId" column="task_id"/>
         <result property="sessionId" column="session_id"/>
@@ -61,12 +61,12 @@
         WHERE status IN ('COMPLETED','FAILED') AND completed_at &lt; #{cutoff}
     </delete>
 
-    <insert id="insert" parameterType="com.docsys.agent.entity.TaskEntity" useGeneratedKeys="true" keyProperty="id">
+    <insert id="insert" parameterType="com.DocSystem.agent.entity.TaskEntity" useGeneratedKeys="true" keyProperty="id">
         INSERT INTO agent_tasks (task_id, session_id, task_type, task_params, status, retry_count, max_retries, result, error_message, created_at, started_at, completed_at, timeout_at, metadata)
         VALUES (#{taskId}, #{sessionId}, #{taskType}, #{taskParams}, #{status}, #{retryCount}, #{maxRetries}, #{result}, #{errorMessage}, #{createdAt}, #{startedAt}, #{completedAt}, #{timeoutAt}, #{metadata})
     </insert>
 
-    <update id="updateById" parameterType="com.docsys.agent.entity.TaskEntity">
+    <update id="updateById" parameterType="com.DocSystem.agent.entity.TaskEntity">
         UPDATE agent_tasks SET
             session_id = #{sessionId},
             task_type = #{taskType},

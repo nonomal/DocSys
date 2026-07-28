@@ -6,7 +6,7 @@
     </typeAliases>
     <!-- DocSysAgent: 大小写不敏感的TaskStatus枚举处理器(仅对该枚举生效,不影响DocSys) -->
     <typeHandlers>
-        <typeHandler handler="com.docsys.agent.entity.TaskStatusTypeHandler"
-                     javaType="com.docsys.agent.entity.TaskEntity$TaskStatus"/>
+        <typeHandler handler="com.DocSystem.agent.entity.TaskStatusTypeHandler"
+                     javaType="com.DocSystem.agent.entity.TaskEntity$TaskStatus"/>
     </typeHandlers>
 </configuration>

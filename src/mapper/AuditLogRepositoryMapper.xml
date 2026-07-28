@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
-<mapper namespace="com.docsys.agent.repository.AuditLogRepository">
+<mapper namespace="com.DocSystem.agent.repository.AuditLogRepository">
 
-    <resultMap id="AuditLogEntityResultMap" type="com.docsys.agent.entity.AuditLogEntity">
+    <resultMap id="AuditLogEntityResultMap" type="com.DocSystem.agent.entity.AuditLogEntity">
         <id property="id" column="id"/>
         <result property="userId" column="user_id"/>
         <result property="sessionId" column="session_id"/>
@@ -55,7 +55,7 @@
         DELETE FROM audit_logs WHERE status IN ('COMPLETED','FAILED') AND created_at &lt; #{cutoff}
     </delete>
 
-    <insert id="insert" parameterType="com.docsys.agent.entity.AuditLogEntity" useGeneratedKeys="true" keyProperty="id">
+    <insert id="insert" parameterType="com.DocSystem.agent.entity.AuditLogEntity" useGeneratedKeys="true" keyProperty="id">
         INSERT INTO audit_logs (user_id, session_id, operation, operation_params, status, confirm_token, client_ip, trace_id, created_at, completed_at, result_message)
         VALUES (#{userId}, #{sessionId}, #{operation}, #{operationParams}, #{status}, #{confirmToken}, #{clientIp}, #{traceId}, #{createdAt}, #{completedAt}, #{resultMessage})
     </insert>

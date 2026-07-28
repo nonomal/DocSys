@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
-<mapper namespace="com.docsys.agent.learning.repository.SharedKnowledgeRepository">
+<mapper namespace="com.DocSystem.agent.learning.repository.SharedKnowledgeRepository">
 
-    <resultMap id="SharedKnowledgeResultMap" type="com.docsys.agent.learning.entity.SharedKnowledge">
+    <resultMap id="SharedKnowledgeResultMap" type="com.DocSystem.agent.learning.entity.SharedKnowledge">
         <id property="id" column="id"/>
         <result property="tenantId" column="tenant_id"/>
         <result property="authorId" column="author_id"/>
@@ -52,12 +52,12 @@
         UPDATE shared_knowledge SET usage_count = usage_count + 1 WHERE id = #{id}
     </update>
 
-    <insert id="insert" parameterType="com.docsys.agent.learning.entity.SharedKnowledge" useGeneratedKeys="true" keyProperty="id">
+    <insert id="insert" parameterType="com.DocSystem.agent.learning.entity.SharedKnowledge" useGeneratedKeys="true" keyProperty="id">
         INSERT INTO shared_knowledge (tenant_id, author_id, task_type, title, content, tags, visibility, upvotes, downvotes, usage_count, avg_rating, created_at, updated_at)
         VALUES (#{tenantId}, #{authorId}, #{taskType}, #{title}, #{content}, #{tags}, #{visibility}, #{upvotes}, #{downvotes}, #{usageCount}, #{avgRating}, #{createdAt}, #{updatedAt})
     </insert>
 
-    <update id="updateById" parameterType="com.docsys.agent.learning.entity.SharedKnowledge">
+    <update id="updateById" parameterType="com.DocSystem.agent.learning.entity.SharedKnowledge">
         UPDATE shared_knowledge SET
             tenant_id = #{tenantId},
             author_id = #{authorId},

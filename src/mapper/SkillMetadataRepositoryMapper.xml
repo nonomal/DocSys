@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
-<mapper namespace="com.docsys.agent.learning.repository.SkillMetadataRepository">
+<mapper namespace="com.DocSystem.agent.learning.repository.SkillMetadataRepository">
 
-    <resultMap id="SkillMetadataResultMap" type="com.docsys.agent.learning.entity.SkillMetadata">
+    <resultMap id="SkillMetadataResultMap" type="com.DocSystem.agent.learning.entity.SkillMetadata">
         <id property="id" column="id"/>
         <result property="skillId" column="skill_id"/>
         <result property="creatorId" column="creator_id"/>
@@ -19,7 +19,7 @@
         <result property="updatedAt" column="updated_at"/>
     </resultMap>
 
-    <insert id="insert" parameterType="com.docsys.agent.learning.entity.SkillMetadata" useGeneratedKeys="true" keyProperty="id">
+    <insert id="insert" parameterType="com.DocSystem.agent.learning.entity.SkillMetadata" useGeneratedKeys="true" keyProperty="id">
         INSERT INTO skill_metadata (
             skill_id, creator_id, creator_name, visibility, allowed_user_ids,
             is_admin_skill, tenant_id, name, category, version, file_path
@@ -29,7 +29,7 @@
         )
     </insert>
 
-    <update id="updateById" parameterType="com.docsys.agent.learning.entity.SkillMetadata">
+    <update id="updateById" parameterType="com.DocSystem.agent.learning.entity.SkillMetadata">
         UPDATE skill_metadata SET
             visibility = #{visibility},
             allowed_user_ids = #{allowedUserIds},

@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
-<mapper namespace="com.docsys.agent.learning.repository.UserExperienceRepository">
+<mapper namespace="com.DocSystem.agent.learning.repository.UserExperienceRepository">
 
-    <resultMap id="UserExperienceResultMap" type="com.docsys.agent.learning.entity.UserExperience">
+    <resultMap id="UserExperienceResultMap" type="com.DocSystem.agent.learning.entity.UserExperience">
         <id property="id" column="id"/>
         <result property="userId" column="user_id"/>
         <result property="tenantId" column="tenant_id"/>
@@ -67,12 +67,12 @@
         DELETE FROM user_experiences WHERE user_id = #{userId}
     </delete>
 
-    <insert id="insert" parameterType="com.docsys.agent.learning.entity.UserExperience" useGeneratedKeys="true" keyProperty="id">
+    <insert id="insert" parameterType="com.DocSystem.agent.learning.entity.UserExperience" useGeneratedKeys="true" keyProperty="id">
         INSERT INTO user_experiences (user_id, tenant_id, task_type, task_input, task_output, success, duration_ms, rating, feedback, tags, created_at, updated_at)
         VALUES (#{userId}, #{tenantId}, #{taskType}, #{taskInput}, #{taskOutput}, #{success}, #{durationMs}, #{rating}, #{feedback}, #{tags}, #{createdAt}, #{updatedAt})
     </insert>
 
-    <update id="updateById" parameterType="com.docsys.agent.learning.entity.UserExperience">
+    <update id="updateById" parameterType="com.DocSystem.agent.learning.entity.UserExperience">
         UPDATE user_experiences SET
             user_id = #{userId},
             tenant_id = #{tenantId},
