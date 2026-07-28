@@ -171,24 +171,22 @@
     }
 
     // ==================== Shared DocSystem Session ====================
-    // Redirect to DocSystem's shared login page (same as DocSystem's interceptor).
+    // 合并进 DocSystem 后前端不做登录拦截/跳转。未登录时仅提示。
     function redirectToDocSysLogin() {
-        window.location.href = '/DocSystem/tologin.do?option=reload';
+        showToast('您尚未登录 DocSystem，请先登录后再使用', 'error');
     }
 
-    // If an agent API response carries the NOT_LOGGED_IN marker, treat it as a
-    // session expiry and bounce to DocSystem login. Returns true if redirected.
+    // 后端返回 NOT_LOGGED_IN 时：不跳转，作为普通错误提示。返回 true 让调用处停止后续处理。
     function handleAuthError(message) {
         if (message && String(message).indexOf('NOT_LOGGED_IN') !== -1) {
-            redirectToDocSysLogin();
+            showToast('您尚未登录 DocSystem，请先登录后再操作', 'error');
             return true;
         }
         return false;
     }
 
-    // The agent is merged into DocSystem (same origin, /DocSystem) and no longer
-    // does its own login. Check DocSystem's shared session on init; if logged in
-    // enter the app, otherwise redirect to DocSystem's login page.
+    // 合并进 DocSystem（同源 /DocSystem），前端不做登录拦截：init 时直接进入主界面。
+    // 只“尽力”取用户名用于展示；未登录也不跳转，后端会在操作时返回未登录提示。
     async function checkDocSysLogin() {
         try {
             const res = await fetch('/DocSystem/User/getLoginUser.do', {
@@ -199,15 +197,14 @@
             });
             const ret = await res.json();
             if (ret && ret.status === 'ok' && ret.data) {
-                state.username = ret.data.name || 'admin';
+                state.username = ret.data.name || '';
                 state.isLoggedIn = true;
-                showMainApp();
-                return;
             }
         } catch (e) {
-            console.warn('getLoginUser check failed:', e);
+            console.warn('getLoginUser check failed (ignored):', e);
         }
-        redirectToDocSysLogin();
+        // 无论登录与否都进入主界面（不跳转）。
+        showMainApp();
     }
 
     
