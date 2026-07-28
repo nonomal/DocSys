@@ -49,7 +49,15 @@
         <property name="dataSource" ref="dataSource" />  
         <!-- 自动扫描entity目录, 省掉Configuration.xml里的手工配置 -->  
         <property name="configLocation" value="classpath:mybatis-config.xml" />  
-        <property name="mapperLocations" value="classpath:com/DocSystem/mapping/*.xml,classpath:mapper/*.xml" />
+        <!-- DocSysAgent: 用 <array> 显式多路径。mybatis-spring 1.1.1 对逗号分隔的
+             单字符串 value 解析不可靠（会当成单个 location 导致 DocSystem 自身 mapper
+             加载失败），必须用 list/array 让每条路径各自解析为 Resource[]。 -->
+        <property name="mapperLocations">
+            <array>
+                <value>classpath:com/DocSystem/mapping/*.xml</value>
+                <value>classpath:mapper/*.xml</value>
+            </array>
+        </property>
     </bean>  
   
     <bean class="org.mybatis.spring.mapper.MapperScannerConfigurer">  

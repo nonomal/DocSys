@@ -10,17 +10,17 @@ import org.apache.ibatis.annotations.Param;
  */
 public interface SessionRepository {
 
-    SessionEntity selectBySessionId(String sessionId);
+    SessionEntity selectBySessionId(@Param("sessionId") String sessionId);
 
-    List<SessionEntity> selectByUsername(String username);
+    List<SessionEntity> selectByUsername(@Param("username") String username);
 
     int insert(SessionEntity session);
 
     int updateLastActive(@Param("sessionId") String sessionId, @Param("now") LocalDateTime now);
 
-    int deleteBySessionId(String sessionId);
+    int deleteBySessionId(@Param("sessionId") String sessionId);
 
-    int deleteInactiveBefore(LocalDateTime cutoff);
+    int deleteInactiveBefore(@Param("cutoff") LocalDateTime cutoff);
 
     long count();
 }
