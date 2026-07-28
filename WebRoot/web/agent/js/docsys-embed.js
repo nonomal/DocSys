@@ -3,13 +3,15 @@
  *
  * 在 DocSys 页面底部注入此脚本，即可在左侧显示浮动对话窗口：
  *
- *   <script src="http://localhost:8110/js/docsys-embed.js"></script>
+ *   <script src="/DocSystem/web/agent/js/docsys-embed.js"></script>
  *   <script>
  *     DocSysAgentEmbed.init({
- *       agentUrl: 'http://localhost:8110',  // DocSys Agent 地址
  *       collapsed: true                     // 默认收起
  *     });
  *   </script>
+ *
+ * 合并部署后 Agent 与 DocSystem 同源同 context (/DocSystem)，
+ * 默认使用相对路径，无需指定 agentUrl。
  *
  * 自动处理：
  *   - 加载 CSS / JS 资源
@@ -21,7 +23,10 @@
   'use strict';
 
   var DEFAULT_CONFIG = {
-    agentUrl: (window.DOCSYS_AGENT_URL || 'http://localhost:8110').replace(/\/$/, ''),
+    // Merged deployment: same origin/context as DocSystem, use relative paths.
+    // assetUrl = static resources (css/js), apiBase = backend controller.
+    assetUrl: (window.DOCSYS_AGENT_URL || '/DocSystem/web/agent').replace(/\/$/, ''),
+    apiBase: (window.DOCSYS_AGENT_API_BASE || '/DocSystem/agent').replace(/\/$/, ''),
     apiKey: (window.DOCSYS_AGENT_API_KEY || null),   // X-API-Key for cross-origin auth
     collapsed: true,
     position: 'left',   // 'left' | 'right'
@@ -56,13 +61,13 @@
     if (initialized || !config) return;
     initialized = true;
 
-    var base = config.agentUrl;
+    var base = config.assetUrl;
 
     loadCss(base + '/css/chat-widget.css');
     loadScript(base + '/js/chat-widget.js', function () {
       if (window.DSAWidget) {
         DSAWidget.init({
-          apiBase: config.agentUrl + '/agent',
+          apiBase: config.apiBase,
           apiKey: config.apiKey,
           collapsed: config.collapsed,
           welcomeMessage: '你好！我是 DocSys Agent。有什么可以帮助你的吗？'

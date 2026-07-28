@@ -12,17 +12,17 @@
  *   <script src="/js/embed-injector.js"></script>
  *   <script>DocSysAgentEmbedV2.init({});</script>
  *
- * Mode 2 — Direct connection (development):
- *   <script>DocSysAgentEmbedV2.init({ agentUrl: 'http://localhost:8110' });</script>
+ * Mode 2 — Explicit override (cross-origin / dev):
+ *   <script>DocSysAgentEmbedV2.init({ agentUrl: 'https://host:port/DocSystem' });</script>
  *
- * Mode 3 — Auto (no config needed):
- *   Auto-discovers from own script src, or falls back to /agent.
+ * Mode 3 — Auto (no config needed, default for merged deployment):
+ *   Auto-discovers from own script src, or falls back to same-origin /DocSystem.
  *
  * ── User configuration priority ─────────────────────────────────────────────
  *   1. window.DOCSYS_AGENT_URL (override)
  *   2. .env DOCSYS_AGENT_URL   (via /widget-config endpoint)
  *   3. Auto-discovery from /js/embed-injector.js script src
- *   4. Fallback: http://localhost:8110
+ *   4. Fallback: /DocSystem (same-origin relative path)
  *
  * ── Widget config endpoint response ─────────────────────────────────────────
  *   GET /widget-config → { agentUrl, apiKey, version, docsysUrl }
@@ -61,9 +61,20 @@
 
   // ── Step 3: Fallback ────────────────────────────────────────────────────────
   if (!CONFIG.agentUrl) {
-    // Try the conventional proxy path; if that fails the config fetch will fix it
-    CONFIG.agentUrl = 'http://localhost:8110';
+    // Merged deployment: Agent static assets live under the DocSystem context.
+    CONFIG.agentUrl = '/DocSystem/web/agent';
   }
+
+  // Normalize any resolved URL (asset path, context root, or backend widget-config
+  // value) down to the DocSystem context root, then derive both bases uniformly.
+  // Merged layout: assets at <ctx>/web/agent, API at <ctx>/agent.
+  function toContextRoot(url) {
+    return url.replace(/\/$/, '')
+              .replace(/\/web\/agent$/, '')
+              .replace(/\/agent$/, '');
+  }
+  function toAssetBase(url) { return toContextRoot(url) + '/web/agent'; }
+  function toApiBase(url)   { return toContextRoot(url) + '/agent'; }
 
   // Will be updated after /widget-config response
   var _finalAgentUrl = null;
@@ -137,9 +148,9 @@
   function fetchWidgetConfig() {
     return new Promise(function (resolve) {
       var xhr = new XMLHttpRequest();
-      // Use the resolved agentUrl as base, add /agent if it's a plain host:port
+      // Resolve backend API base from the static-asset base.
       var base = CONFIG.agentUrl;
-      var apiBase = (base.indexOf('/agent') !== -1) ? base : base + '/agent';
+      var apiBase = toApiBase(base);
       xhr.open('GET', apiBase + '/widget-config', true);
       xhr.setRequestHeader('Accept', 'application/json');
       xhr.timeout = CONFIG.timeout;
@@ -205,13 +216,9 @@
   function initWidget(user, apiKey, resolvedAgentUrl) {
     _user = user;
 
-    // resolvedAgentUrl may be a path (/agent) or a full URL (http://localhost:8110)
-    var apiBase = (resolvedAgentUrl.indexOf('/agent') !== -1)
-        ? resolvedAgentUrl
-        : resolvedAgentUrl + '/agent';
-    var cssBase = (resolvedAgentUrl.indexOf('/agent') !== -1)
-        ? resolvedAgentUrl.replace(/\/agent\/?$/, '')
-        : resolvedAgentUrl;
+    // resolvedAgentUrl may be an asset path, context root, or full URL — normalize both.
+    var cssBase = toAssetBase(resolvedAgentUrl);
+    var apiBase = toApiBase(resolvedAgentUrl);
     var sessionId = user ? 'docsys_' + user.id : null;
 
     // Load theme CSS first (before widget so theme applies)
