@@ -14700,7 +14700,10 @@ public class BaseController  extends BaseFunction{
 				addDelayTaskForReposCacheClean(10, 600L); //10分钟后开始清除仓库缓存
 								
 				FileUtil.saveDocContentToFile("ok", docSysIniPath,  "docSysIniState", "UTF-8");
-				
+
+				//DocSysAgent: 数据库已就绪，触发 Agent 初始化（建表 + LLM 同步）
+				triggerAgentInit();
+
 				return "ok";
 			}
 		}
@@ -14737,11 +14740,39 @@ public class BaseController  extends BaseFunction{
 			
 			//启动仓库缓存自动清理任务（每天执行一次）
 			addDelayTaskForReposCacheClean(10, 600L); //10分钟后开始清除仓库缓存
+
+			//DocSysAgent: 数据库已就绪，触发 Agent 初始化（建表 + LLM 同步）
+			triggerAgentInit();
 		}
-		
+
 		FileUtil.saveDocContentToFile(ret, docSysIniPath,  "docSysIniState", "UTF-8");
 
 		return ret;
+	}
+
+	/**
+	 * DocSysAgent 初始化钩子。
+	 * 在 docSysInit 确认数据库就绪的成功路径中调用，委托给 Agent 侧的
+	 * AgentInitService（建 agent_* 表 + 从 DocSys 内存同步 LLM 配置）。
+	 * 全程 try/catch 兜底：Agent 初始化失败不得影响 DocSys 自身启动/初始化。
+	 * 通过当前 WebApplicationContext 取 bean，避免在 BaseController 顶部新增 import
+	 * 或与 Agent 形成编译期强耦合（Agent 缺席时静默跳过）。
+	 */
+	private void triggerAgentInit() {
+		try {
+			org.springframework.web.context.WebApplicationContext wac =
+				org.springframework.web.context.ContextLoader.getCurrentWebApplicationContext();
+			if(wac == null) {
+				Log.info("triggerAgentInit() WebApplicationContext 不可用，跳过 Agent 初始化");
+				return;
+			}
+			com.docsys.agent.config.AgentInitService agentInit =
+				wac.getBean(com.docsys.agent.config.AgentInitService.class);
+			agentInit.initAfterDocSysReady();
+		} catch (Exception e) {
+			Log.info("triggerAgentInit() Agent 初始化失败（不影响 DocSys）: " + e.getMessage());
+			Log.info(e);
+		}
 	}
 
 	protected void restartClusterServer() {

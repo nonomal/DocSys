@@ -5,7 +5,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
-import javax.annotation.PostConstruct;
 import javax.sql.DataSource;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -265,15 +264,279 @@ public class DatabaseInitializer {
             + ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='相似用户缓存'"
     };
 
-    @PostConstruct
+    /**
+     * SQLite-dialect CREATE TABLE statements (parallel to CREATE_TABLE_STATEMENTS).
+     *
+     * Differences from the MySQL versions:
+     * - id INTEGER PRIMARY KEY AUTOINCREMENT (SQLite rowid, not BIGINT/AUTO_INCREMENT)
+     * - No COMMENT clauses (column or table level), no ENGINE/CHARSET table options
+     * - ENUM(...) columns replaced with VARCHAR(32)
+     * - LONGTEXT replaced with TEXT
+     * - ON UPDATE CURRENT_TIMESTAMP removed (unsupported by SQLite)
+     * - BOOLEAN DEFAULT FALSE/TRUE mapped to DEFAULT 0/1
+     * - UNIQUE KEY ... (...) rewritten as a table-level UNIQUE (...) constraint
+     * - Non-unique INDEX definitions moved OUT into CREATE_INDEX_STATEMENTS_SQLITE
+     */
+    private static final String[] CREATE_TABLE_STATEMENTS_SQLITE = {
+        // agent_sessions
+        "CREATE TABLE IF NOT EXISTS agent_sessions ("
+            + "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+            + "session_id VARCHAR(64) NOT NULL,"
+            + "username VARCHAR(128),"
+            + "jsessionid VARCHAR(256),"
+            + "tenant_id VARCHAR(64),"
+            + "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,"
+            + "last_active TIMESTAMP DEFAULT CURRENT_TIMESTAMP,"
+            + "expires_at TIMESTAMP NULL,"
+            + "metadata TEXT,"
+            + "UNIQUE (session_id)"
+            + ")",
+
+        // agent_tasks
+        "CREATE TABLE IF NOT EXISTS agent_tasks ("
+            + "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+            + "task_id VARCHAR(64) NOT NULL,"
+            + "session_id VARCHAR(64),"
+            + "task_type VARCHAR(64) NOT NULL,"
+            + "task_params TEXT,"
+            + "status VARCHAR(32) NOT NULL DEFAULT 'PENDING',"
+            + "retry_count INT NOT NULL DEFAULT 0,"
+            + "max_retries INT NOT NULL DEFAULT 3,"
+            + "result TEXT,"
+            + "error_message TEXT,"
+            + "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,"
+            + "started_at TIMESTAMP NULL,"
+            + "completed_at TIMESTAMP NULL,"
+            + "timeout_at TIMESTAMP NULL,"
+            + "metadata TEXT,"
+            + "UNIQUE (task_id)"
+            + ")",
+
+        // audit_logs
+        "CREATE TABLE IF NOT EXISTS audit_logs ("
+            + "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+            + "user_id VARCHAR(128) NOT NULL,"
+            + "session_id VARCHAR(64),"
+            + "operation VARCHAR(64) NOT NULL,"
+            + "operation_params TEXT,"
+            + "status VARCHAR(32) NOT NULL DEFAULT 'PENDING',"
+            + "confirm_token VARCHAR(64),"
+            + "client_ip VARCHAR(45),"
+            + "trace_id VARCHAR(64),"
+            + "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,"
+            + "completed_at TIMESTAMP NULL,"
+            + "result_message TEXT"
+            + ")",
+
+        // skill_metadata
+        "CREATE TABLE IF NOT EXISTS skill_metadata ("
+            + "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+            + "skill_id VARCHAR(64) NOT NULL,"
+            + "creator_id VARCHAR(64) NOT NULL,"
+            + "creator_name VARCHAR(128),"
+            + "visibility VARCHAR(32) DEFAULT 'PRIVATE',"
+            + "allowed_user_ids TEXT,"
+            + "is_admin_skill BOOLEAN DEFAULT 0,"
+            + "tenant_id VARCHAR(64),"
+            + "name VARCHAR(256),"
+            + "category VARCHAR(64),"
+            + "version VARCHAR(32),"
+            + "file_path VARCHAR(512),"
+            + "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,"
+            + "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,"
+            + "UNIQUE (skill_id)"
+            + ")",
+
+        // user_permissions
+        "CREATE TABLE IF NOT EXISTS user_permissions ("
+            + "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+            + "user_id VARCHAR(64) NOT NULL,"
+            + "tenant_id VARCHAR(64),"
+            + "role_id VARCHAR(64),"
+            + "role_name VARCHAR(128),"
+            + "department_id VARCHAR(64),"
+            + "permission_level INT DEFAULT 0,"
+            + "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,"
+            + "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,"
+            + "UNIQUE (user_id, role_id)"
+            + ")",
+
+        // user_behavior_tags
+        "CREATE TABLE IF NOT EXISTS user_behavior_tags ("
+            + "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+            + "user_id VARCHAR(64) NOT NULL,"
+            + "tenant_id VARCHAR(64),"
+            + "action_tag VARCHAR(64) NOT NULL,"
+            + "action_count INT DEFAULT 1,"
+            + "last_action_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,"
+            + "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,"
+            + "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,"
+            + "UNIQUE (user_id, action_tag)"
+            + ")",
+
+        // user_experiences
+        "CREATE TABLE IF NOT EXISTS user_experiences ("
+            + "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+            + "user_id VARCHAR(64) NOT NULL,"
+            + "tenant_id VARCHAR(64),"
+            + "query TEXT NOT NULL,"
+            + "intent VARCHAR(64) NOT NULL,"
+            + "actions TEXT,"
+            + "success BOOLEAN DEFAULT 1,"
+            + "duration_ms INT,"
+            + "error_message TEXT,"
+            + "feedback_score INT,"
+            + "feedback_text TEXT,"
+            + "share_level VARCHAR(32) DEFAULT 'PRIVATE',"
+            + "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,"
+            + "indexed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
+            + ")",
+
+        // shared_knowledge
+        "CREATE TABLE IF NOT EXISTS shared_knowledge ("
+            + "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+            + "intent VARCHAR(64) NOT NULL,"
+            + "query_pattern TEXT,"
+            + "solution TEXT NOT NULL,"
+            + "success_rate DECIMAL(5,2) DEFAULT 0.00,"
+            + "usage_count INT DEFAULT 0,"
+            + "contributor_id VARCHAR(64),"
+            + "contributor_name VARCHAR(128),"
+            + "tenant_id VARCHAR(64),"
+            + "share_level VARCHAR(32) DEFAULT 'PUBLIC',"
+            + "status VARCHAR(32) DEFAULT 'DRAFT',"
+            + "approved_at TIMESTAMP NULL,"
+            + "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,"
+            + "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
+            + ")",
+
+        // collaborative_recommendations
+        "CREATE TABLE IF NOT EXISTS collaborative_recommendations ("
+            + "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+            + "tenant_id VARCHAR(64),"
+            + "target_user_id VARCHAR(64) NOT NULL,"
+            + "recommended_intent VARCHAR(128) NOT NULL,"
+            + "recommended_actions TEXT,"
+            + "confidence_score DECIMAL(5,4) DEFAULT 0.0000,"
+            + "source_user_ids TEXT,"
+            + "source_count INT DEFAULT 0,"
+            + "reason TEXT,"
+            + "is_clicked BOOLEAN DEFAULT 0,"
+            + "is_useful BOOLEAN DEFAULT NULL,"
+            + "expires_at TIMESTAMP,"
+            + "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,"
+            + "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
+            + ")",
+
+        // skill_ratings
+        "CREATE TABLE IF NOT EXISTS skill_ratings ("
+            + "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+            + "skill_id VARCHAR(64) NOT NULL,"
+            + "user_id VARCHAR(64) NOT NULL,"
+            + "tenant_id VARCHAR(64),"
+            + "rating INT NOT NULL,"
+            + "comment TEXT,"
+            + "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,"
+            + "UNIQUE (user_id, skill_id)"
+            + ")",
+
+        // similar_users_cache
+        "CREATE TABLE IF NOT EXISTS similar_users_cache ("
+            + "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+            + "user_id VARCHAR(64) NOT NULL,"
+            + "tenant_id VARCHAR(64),"
+            + "similar_user_id VARCHAR(64) NOT NULL,"
+            + "similarity_score DECIMAL(5,4) NOT NULL,"
+            + "permission_similarity DECIMAL(5,4) DEFAULT 0.0000,"
+            + "behavior_similarity DECIMAL(5,4) DEFAULT 0.0000,"
+            + "computed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,"
+            + "expires_at TIMESTAMP,"
+            + "UNIQUE (user_id, similar_user_id)"
+            + ")"
+    };
+
+    /**
+     * SQLite CREATE INDEX statements extracted from the inline MySQL INDEX definitions.
+     *
+     * SQLite does NOT allow inline non-unique INDEX inside CREATE TABLE, and its index
+     * names live in a single DB-global namespace (unlike MySQL where they are per-table).
+     * Since several tables reuse names like idx_created / idx_tenant / idx_user / idx_status,
+     * every index name here is PREFIXED with its table name to avoid global collisions.
+     * Executed only for the SQLite dialect, after the table creates.
+     */
+    private static final String[] CREATE_INDEX_STATEMENTS_SQLITE = {
+        // agent_sessions
+        "CREATE INDEX IF NOT EXISTS agent_sessions_idx_username ON agent_sessions (username)",
+        "CREATE INDEX IF NOT EXISTS agent_sessions_idx_last_active ON agent_sessions (last_active)",
+        "CREATE INDEX IF NOT EXISTS agent_sessions_idx_expires ON agent_sessions (expires_at)",
+        // agent_tasks
+        "CREATE INDEX IF NOT EXISTS agent_tasks_idx_status ON agent_tasks (status)",
+        "CREATE INDEX IF NOT EXISTS agent_tasks_idx_session ON agent_tasks (session_id)",
+        "CREATE INDEX IF NOT EXISTS agent_tasks_idx_timeout ON agent_tasks (timeout_at)",
+        "CREATE INDEX IF NOT EXISTS agent_tasks_idx_created ON agent_tasks (created_at)",
+        "CREATE INDEX IF NOT EXISTS agent_tasks_idx_status_retry ON agent_tasks (status, retry_count)",
+        // audit_logs
+        "CREATE INDEX IF NOT EXISTS audit_logs_idx_user_id ON audit_logs (user_id)",
+        "CREATE INDEX IF NOT EXISTS audit_logs_idx_session ON audit_logs (session_id)",
+        "CREATE INDEX IF NOT EXISTS audit_logs_idx_operation ON audit_logs (operation)",
+        "CREATE INDEX IF NOT EXISTS audit_logs_idx_status ON audit_logs (status)",
+        "CREATE INDEX IF NOT EXISTS audit_logs_idx_created ON audit_logs (created_at)",
+        "CREATE INDEX IF NOT EXISTS audit_logs_idx_trace ON audit_logs (trace_id)",
+        // skill_metadata
+        "CREATE INDEX IF NOT EXISTS skill_metadata_idx_creator ON skill_metadata (creator_id)",
+        "CREATE INDEX IF NOT EXISTS skill_metadata_idx_visibility ON skill_metadata (visibility)",
+        "CREATE INDEX IF NOT EXISTS skill_metadata_idx_tenant ON skill_metadata (tenant_id)",
+        "CREATE INDEX IF NOT EXISTS skill_metadata_idx_created ON skill_metadata (created_at DESC)",
+        // user_permissions
+        "CREATE INDEX IF NOT EXISTS user_permissions_idx_tenant ON user_permissions (tenant_id)",
+        "CREATE INDEX IF NOT EXISTS user_permissions_idx_permission ON user_permissions (permission_level)",
+        "CREATE INDEX IF NOT EXISTS user_permissions_idx_user ON user_permissions (user_id)",
+        // user_behavior_tags
+        "CREATE INDEX IF NOT EXISTS user_behavior_tags_idx_tag_count ON user_behavior_tags (action_tag, action_count DESC)",
+        "CREATE INDEX IF NOT EXISTS user_behavior_tags_idx_tenant_tag ON user_behavior_tags (tenant_id, action_tag)",
+        "CREATE INDEX IF NOT EXISTS user_behavior_tags_idx_user ON user_behavior_tags (user_id)",
+        // user_experiences
+        "CREATE INDEX IF NOT EXISTS user_experiences_idx_user_intent ON user_experiences (user_id, intent)",
+        "CREATE INDEX IF NOT EXISTS user_experiences_idx_intent_success ON user_experiences (intent, success)",
+        "CREATE INDEX IF NOT EXISTS user_experiences_idx_tenant ON user_experiences (tenant_id)",
+        "CREATE INDEX IF NOT EXISTS user_experiences_idx_created ON user_experiences (created_at)",
+        "CREATE INDEX IF NOT EXISTS user_experiences_idx_share_level ON user_experiences (share_level)",
+        // shared_knowledge
+        "CREATE INDEX IF NOT EXISTS shared_knowledge_idx_intent ON shared_knowledge (intent)",
+        "CREATE INDEX IF NOT EXISTS shared_knowledge_idx_share_level ON shared_knowledge (share_level, tenant_id)",
+        "CREATE INDEX IF NOT EXISTS shared_knowledge_idx_success_rate ON shared_knowledge (success_rate DESC)",
+        "CREATE INDEX IF NOT EXISTS shared_knowledge_idx_status ON shared_knowledge (status)",
+        // collaborative_recommendations
+        "CREATE INDEX IF NOT EXISTS collaborative_recommendations_idx_target ON collaborative_recommendations (target_user_id, expires_at)",
+        "CREATE INDEX IF NOT EXISTS collaborative_recommendations_idx_confidence ON collaborative_recommendations (confidence_score DESC)",
+        "CREATE INDEX IF NOT EXISTS collaborative_recommendations_idx_tenant ON collaborative_recommendations (tenant_id)",
+        "CREATE INDEX IF NOT EXISTS collaborative_recommendations_idx_clicked ON collaborative_recommendations (is_clicked)",
+        // skill_ratings
+        "CREATE INDEX IF NOT EXISTS skill_ratings_idx_skill ON skill_ratings (skill_id)",
+        "CREATE INDEX IF NOT EXISTS skill_ratings_idx_user ON skill_ratings (user_id)",
+        // similar_users_cache
+        "CREATE INDEX IF NOT EXISTS similar_users_cache_idx_user_similarity ON similar_users_cache (user_id, similarity_score DESC)",
+        "CREATE INDEX IF NOT EXISTS similar_users_cache_idx_computed ON similar_users_cache (computed_at)"
+    };
+
+    /**
+     * 建 agent_* 表（幂等：CREATE TABLE IF NOT EXISTS，MySQL/SQLite 双方言）。
+     * 合并部署后不再用 @PostConstruct 在容器启动时抢跑，改由 DocSys 的 docSysInit
+     * 成功路径经 {@link AgentInitService} 统一触发 —— 保证在 DocSys 确认数据库就绪后才建表。
+     */
     public void init() {
         log.info("Starting database table initialization check...");
 
         try (Connection conn = dataSource.getConnection()) {
-            String databaseName = getDatabaseName(conn);
-            log.info("Connected to database: {}", databaseName);
+            boolean sqlite = isSQLite(conn);
+            if (sqlite) {
+                log.info("Connected to database: SQLite (self-contained, no schema name)");
+            } else {
+                String databaseName = getDatabaseName(conn);
+                log.info("Connected to database: {}", databaseName);
+            }
 
-            List<String> missingTables = checkMissingTables(conn, databaseName);
+            List<String> missingTables = checkMissingTables(conn, sqlite);
 
             if (missingTables.isEmpty()) {
                 log.info("All required DocSysAgent tables exist. Initialization complete.");
@@ -283,7 +546,7 @@ public class DatabaseInitializer {
             log.warn("Found {} missing tables: {}", missingTables.size(), missingTables);
             log.info("Creating missing tables...");
 
-            int created = createMissingTables(conn, missingTables);
+            int created = createMissingTables(conn, sqlite);
 
             log.info("Successfully created {} tables. Database initialization complete.", created);
             log.info("DocSysAgent tables initialized: agent_sessions, agent_tasks, audit_logs, "
@@ -298,7 +561,27 @@ public class DatabaseInitializer {
     }
 
     /**
-     * Get the current database name from connection.
+     * Detect whether the current connection is a SQLite database.
+     *
+     * Uses connection metadata as the primary, self-contained detection since it is
+     * always correct regardless of when this component runs. DocSys's DB_TYPE field
+     * (com.DocSystem.controller.BaseController.DB_TYPE) is package-protected and not
+     * accessible from this package, so metadata is preferred.
+     */
+    private boolean isSQLite(Connection conn) {
+        try {
+            String product = conn.getMetaData().getDatabaseProductName();
+            if (product != null && product.toLowerCase().contains("sqlite")) {
+                return true;
+            }
+        } catch (SQLException e) {
+            log.warn("Could not read database product name, assuming MySQL: {}", e.getMessage());
+        }
+        return false;
+    }
+
+    /**
+     * Get the current database name from connection (MySQL only).
      */
     private String getDatabaseName(Connection conn) throws SQLException {
         try (PreparedStatement ps = conn.prepareStatement("SELECT DATABASE()")) {
@@ -312,13 +595,13 @@ public class DatabaseInitializer {
 
     /**
      * Check which required tables are missing.
+     *
+     * SQLite: query sqlite_master (no information_schema / database name concept).
+     * MySQL:  query information_schema.tables scoped by the current database name.
      */
-    private List<String> checkMissingTables(Connection conn, String databaseName) throws SQLException {
+    private List<String> checkMissingTables(Connection conn, boolean sqlite) throws SQLException {
         List<String> missing = new ArrayList<>();
-
-        // Query information_schema to check existing tables
-        String sql = "SELECT table_name FROM information_schema.tables "
-                   + "WHERE table_schema = ? AND table_name IN (";
+        List<String> existing = new ArrayList<>();
 
         // Build placeholder list for IN clause
         StringBuilder placeholders = new StringBuilder();
@@ -326,25 +609,40 @@ public class DatabaseInitializer {
             if (i > 0) placeholders.append(",");
             placeholders.append("?");
         }
-        sql += placeholders.toString() + ")";
 
-        try (PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setString(1, databaseName);
-            for (int i = 0; i < REQUIRED_TABLES.length; i++) {
-                ps.setString(i + 2, REQUIRED_TABLES[i]);
-            }
-
-            ResultSet rs = ps.executeQuery();
-            List<String> existing = new ArrayList<>();
-            while (rs.next()) {
-                existing.add(rs.getString("table_name"));
-            }
-
-            // Find missing tables
-            for (String table : REQUIRED_TABLES) {
-                if (!existing.contains(table)) {
-                    missing.add(table);
+        if (sqlite) {
+            String sql = "SELECT name FROM sqlite_master WHERE type='table' AND name IN ("
+                       + placeholders.toString() + ")";
+            try (PreparedStatement ps = conn.prepareStatement(sql)) {
+                for (int i = 0; i < REQUIRED_TABLES.length; i++) {
+                    ps.setString(i + 1, REQUIRED_TABLES[i]);
                 }
+                ResultSet rs = ps.executeQuery();
+                while (rs.next()) {
+                    existing.add(rs.getString("name"));
+                }
+            }
+        } else {
+            String databaseName = getDatabaseName(conn);
+            String sql = "SELECT table_name FROM information_schema.tables "
+                       + "WHERE table_schema = ? AND table_name IN ("
+                       + placeholders.toString() + ")";
+            try (PreparedStatement ps = conn.prepareStatement(sql)) {
+                ps.setString(1, databaseName);
+                for (int i = 0; i < REQUIRED_TABLES.length; i++) {
+                    ps.setString(i + 2, REQUIRED_TABLES[i]);
+                }
+                ResultSet rs = ps.executeQuery();
+                while (rs.next()) {
+                    existing.add(rs.getString("table_name"));
+                }
+            }
+        }
+
+        // Find missing tables
+        for (String table : REQUIRED_TABLES) {
+            if (!existing.contains(table)) {
+                missing.add(table);
             }
         }
 
@@ -353,11 +651,15 @@ public class DatabaseInitializer {
 
     /**
      * Create missing tables using CREATE TABLE IF NOT EXISTS.
+     *
+     * For SQLite it also executes the extracted CREATE INDEX IF NOT EXISTS statements
+     * afterwards (SQLite does not allow inline non-unique indexes).
      */
-    private int createMissingTables(Connection conn, List<String> missingTables) throws SQLException {
+    private int createMissingTables(Connection conn, boolean sqlite) throws SQLException {
         int created = 0;
 
-        for (String sql : CREATE_TABLE_STATEMENTS) {
+        String[] statements = sqlite ? CREATE_TABLE_STATEMENTS_SQLITE : CREATE_TABLE_STATEMENTS;
+        for (String sql : statements) {
             try (PreparedStatement ps = conn.prepareStatement(sql)) {
                 ps.executeUpdate();
                 created++;
@@ -365,6 +667,18 @@ public class DatabaseInitializer {
             } catch (SQLException e) {
                 log.warn("Failed to create table (may already exist): {}", e.getMessage());
                 // Continue with other tables
+            }
+        }
+
+        if (sqlite) {
+            for (String sql : CREATE_INDEX_STATEMENTS_SQLITE) {
+                try (PreparedStatement ps = conn.prepareStatement(sql)) {
+                    ps.executeUpdate();
+                    log.debug("Executed CREATE INDEX: {}", sql);
+                } catch (SQLException e) {
+                    log.warn("Failed to create index (may already exist): {}", e.getMessage());
+                    // Continue with other indexes
+                }
             }
         }
 

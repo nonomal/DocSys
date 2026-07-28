@@ -67,11 +67,12 @@ public class LlmConfigSyncService {
     private volatile boolean lastRefreshSuccessful = false;
 
     /**
-     * 初始化时从 DocSystem 同步 AI 模型配置（仅执行一次）
+     * 从 DocSystem 同步 AI 模型配置。
+     * 合并部署后由 DocSys 的 docSysInit 成功路径统一触发（见 AgentInitService），
+     * 不再使用 @PostConstruct 在容器启动时抢跑。
      */
-    @PostConstruct
     public void syncLlmConfigFromDocSys() {
-        log.info("=== 启动时 LLM 配置同步 ===");
+        log.info("=== LLM 配置同步（由 docSysInit 触发）===");
         doSyncConfig();
     }
 
@@ -110,79 +111,52 @@ public class LlmConfigSyncService {
     }
 
     /**
-     * 执行配置同步（内部方法）
+     * 执行配置同步（内部方法）。
+     *
+     * 合并部署后 Agent 与 DocSys 同进程，直接读取 DocSys 已加载到内存的
+     * {@code BaseFunction.systemLLMConfig}（由 DocSys 在类加载静态块 / docSysInit
+     * 中从 docSysConfig.properties 解析），不再通过 HTTP 登录 DocSystem +
+     * getAiModelList，从根本上消除启动时的网络阻塞。
      *
      * @return true if sync successful, false otherwise
      */
     private boolean doSyncConfig() {
-        long now = System.currentTimeMillis();
-
         try {
-            log.info("开始从 DocSystem 同步 LLM 配置...");
+            log.info("从 DocSys 内存配置同步 LLM（BaseFunction.systemLLMConfig）...");
 
-            // 创建 DocSysClient
-            DocSysClient docSysClient = new DocSysClient(docsysUrl);
+            com.DocSystem.common.entity.SystemLLMConfig cfg =
+                com.DocSystem.common.BaseFunction.systemLLMConfig;
 
-            // 使用管理员账号登录 DocSystem
-            log.debug("使用管理员账号登录 DocSystem: {}", adminUsername);
-            Map<String, Object> loginResponse = docSysClient.login(adminUsername, adminPassword);
-
-            if (loginResponse == null || !"ok".equals(loginResponse.get("status"))) {
-                String loginError = loginResponse != null ? (String) loginResponse.get("msgInfo") : "登录失败";
-                log.warn("DocSystem 登录失败: {}，使用环境变量配置", loginError);
+            if (cfg == null || !cfg.enabled
+                    || cfg.llmConfigList == null || cfg.llmConfigList.isEmpty()) {
+                log.warn("DocSys 未配置可用 LLM（systemLLMConfig 为空/未启用），使用环境变量配置");
                 applyEnvConfig();
                 updateRefreshStatus(false);
                 return false;
             }
 
-            log.debug("DocSystem 登录成功");
+            // 取第一个可用模型（与原 getAiModelList 取 index 0 语义一致）
+            com.DocSystem.common.entity.LLMConfig model = cfg.llmConfigList.get(0);
+            String endpoint = model.url;
+            String modelName = model.modelName;
+            String apiKey = model.apikey;
 
-            // 调用 DocSystem 的 getAiModelList 接口
-            Map<String, Object> response = docSysClient.getAiModelList();
+            log.info("从 DocSys 获取到 LLM 配置: endpoint={}, model={}, apiKey={}",
+                    endpoint, modelName, apiKey != null ? maskApiKey(apiKey) : "未设置");
 
-            if (response != null && "ok".equals(response.get("status"))) {
-                List<Map<String, Object>> aiModels = (List<Map<String, Object>>) response.get("data");
-
-                if (aiModels != null && !aiModels.isEmpty()) {
-                    // 获取第一个可用的 AI 模型配置
-                    Map<String, Object> modelConfig = aiModels.get(0);
-
-                    String endpoint = getStringValue(modelConfig, "endpoint");
-                    String model = getStringValue(modelConfig, "modelName");
-                    String apiKey = getStringValue(modelConfig, "apiKey");
-
-                    log.info("从 DocSystem 获取到 AI 模型配置:");
-                    log.info("  Endpoint: {}", endpoint);
-                    log.info("  Model: {}", model);
-                    log.info("  API Key: {}", apiKey != null ? maskApiKey(apiKey) : "未设置");
-
-                    // 应用配置到 LLMService
-                    if (llmService != null) {
-                        applyConfig(endpoint, model, apiKey);
-                        log.info("✅ LLM 配置已从 DocSystem 同步成功");
-                        updateRefreshStatus(true);
-                        return true;
-                    } else {
-                        log.warn("LLMService 未注入，无法应用配置");
-                        updateRefreshStatus(false);
-                        return false;
-                    }
-                } else {
-                    log.warn("DocSystem 中没有配置 AI 模型，使用环境变量配置");
-                    applyEnvConfig();
-                    updateRefreshStatus(false);
-                    return false;
-                }
+            if (llmService != null) {
+                applyConfig(endpoint, modelName, apiKey);
+                log.info("✅ LLM 配置已从 DocSys 内存同步成功");
+                updateRefreshStatus(true);
+                return true;
             } else {
-                String msgInfo = response != null ? (String) response.get("msgInfo") : "未知错误";
-                log.warn("从 DocSystem 获取 AI 模型列表失败: {}，使用环境变量配置", msgInfo);
-                applyEnvConfig();
+                log.warn("LLMService 未注入，无法应用配置");
                 updateRefreshStatus(false);
                 return false;
             }
 
         } catch (Exception e) {
-            log.error("同步 DocSystem LLM 配置时发生异常: {}，使用环境变量配置", e.getMessage());
+            log.error("同步 DocSys LLM 配置时发生异常: {}，使用环境变量配置", e.getMessage());
             log.debug("异常详情:", e);
             applyEnvConfig();
             updateRefreshStatus(false);

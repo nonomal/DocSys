@@ -107,11 +107,14 @@ public class MainAgent {
     }
 
     /**
-     * On application startup, scan for pending/running tasks and re-enqueue them.
-     * Per D-11: Spring Boot startup recovery.
-     * Per D-10: Tasks older than agent.task-retry.timeout-minutes are candidates.
+     * 启动时任务恢复 —— 合并部署后已废弃，不再自动调用。
+     *
+     * 原设计用于独立部署时扫描 agent_tasks 表、把中断的 pending/running 任务
+     * 重新入队重试。合并进 DocSys 后：Agent 主执行为同步（在 HTTP 请求线程内完成），
+     * Tomcat 崩溃即请求中断，是否继续应由用户在对话中决定，而非后台静默重跑
+     * （重跑还可能重复执行有副作用的操作）。且队列无后台消费者，重入队为空转。
+     * 故移除 @PostConstruct 触发；方法保留仅为兼容潜在的手动调用。
      */
-    @javax.annotation.PostConstruct
     public void resumePendingTasks() {
         if (taskQueueService == null) {
             log.debug("TaskQueueService not available, skipping startup recovery");
