@@ -155,14 +155,14 @@ public class DatabaseInitializer {
             + "id BIGINT PRIMARY KEY AUTO_INCREMENT,"
             + "user_id VARCHAR(64) NOT NULL,"
             + "tenant_id VARCHAR(64),"
-            + "action_tag VARCHAR(64) NOT NULL COMMENT '行为标签',"
+            + "tag VARCHAR(64) NOT NULL COMMENT '行为标签',"
+            + "weight DECIMAL(10,4) DEFAULT 1.0000 COMMENT '标签权重',"
             + "action_count INT DEFAULT 1 COMMENT '行为次数',"
-            + "last_action_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,"
+            + "last_action_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,"
             + "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,"
-            + "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,"
-            + "UNIQUE KEY uk_user_tag (user_id, action_tag),"
-            + "INDEX idx_tag_count (action_tag, action_count DESC),"
-            + "INDEX idx_tenant_tag (tenant_id, action_tag),"
+            + "UNIQUE KEY uk_user_tag (user_id, tag),"
+            + "INDEX idx_tag_count (tag, action_count DESC),"
+            + "INDEX idx_tenant_tag (tenant_id, tag),"
             + "INDEX idx_user (user_id)"
             + ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户行为标签表'",
 
@@ -171,44 +171,42 @@ public class DatabaseInitializer {
             + "id BIGINT PRIMARY KEY AUTO_INCREMENT,"
             + "user_id VARCHAR(64) NOT NULL,"
             + "tenant_id VARCHAR(64),"
-            + "query TEXT NOT NULL COMMENT '用户问题',"
-            + "intent VARCHAR(64) NOT NULL COMMENT '识别的意图',"
-            + "actions LONGTEXT COMMENT '执行的动作(JSON)',"
+            + "task_type VARCHAR(64) NOT NULL COMMENT '任务类型',"
+            + "task_input TEXT COMMENT '任务输入',"
+            + "task_output LONGTEXT COMMENT '任务输出',"
             + "success BOOLEAN DEFAULT TRUE COMMENT '是否成功',"
-            + "duration_ms INT COMMENT '执行耗时',"
-            + "error_message TEXT COMMENT '错误信息',"
-            + "feedback_score INT COMMENT '用户反馈: 1=差, 2=一般, 3=好, 4=很好, 5=完美',"
-            + "feedback_text TEXT COMMENT '用户反馈文字',"
-            + "share_level ENUM('PRIVATE', 'TENANT', 'PUBLIC', 'INVITED') DEFAULT 'PRIVATE',"
+            + "duration_ms BIGINT COMMENT '执行耗时',"
+            + "rating INT COMMENT '用户评分: 1=差, 2=一般, 3=好, 4=很好, 5=完美',"
+            + "feedback TEXT COMMENT '用户反馈文字',"
+            + "tags TEXT COMMENT '标签(JSON)',"
             + "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,"
-            + "indexed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,"
-            + "INDEX idx_user_intent (user_id, intent),"
-            + "INDEX idx_intent_success (intent, success),"
+            + "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,"
+            + "INDEX idx_user_task_type (user_id, task_type),"
+            + "INDEX idx_task_type_success (task_type, success),"
             + "INDEX idx_tenant (tenant_id),"
-            + "INDEX idx_created (created_at),"
-            + "INDEX idx_share_level (share_level)"
+            + "INDEX idx_created (created_at)"
             + ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户经验表'",
 
         // shared_knowledge
         "CREATE TABLE IF NOT EXISTS shared_knowledge ("
             + "id BIGINT PRIMARY KEY AUTO_INCREMENT,"
-            + "intent VARCHAR(64) NOT NULL COMMENT '意图类型',"
-            + "query_pattern TEXT COMMENT '匹配模式',"
-            + "solution LONGTEXT NOT NULL COMMENT '解决方案(JSON)',"
-            + "success_rate DECIMAL(5,2) DEFAULT 0.00 COMMENT '成功率',"
-            + "usage_count INT DEFAULT 0 COMMENT '使用次数',"
-            + "contributor_id VARCHAR(64) COMMENT '贡献者',"
-            + "contributor_name VARCHAR(128),"
             + "tenant_id VARCHAR(64),"
-            + "share_level ENUM('TENANT', 'PUBLIC') DEFAULT 'PUBLIC',"
-            + "status ENUM('DRAFT', 'ACTIVE', 'DEPRECATED') DEFAULT 'DRAFT',"
-            + "approved_at TIMESTAMP NULL,"
+            + "author_id VARCHAR(64) COMMENT '贡献者',"
+            + "task_type VARCHAR(64) NOT NULL COMMENT '任务类型',"
+            + "title VARCHAR(256) COMMENT '标题',"
+            + "content LONGTEXT COMMENT '内容(JSON)',"
+            + "tags TEXT COMMENT '标签(JSON)',"
+            + "visibility VARCHAR(32) DEFAULT 'PUBLIC' COMMENT '可见范围',"
+            + "upvotes INT DEFAULT 0 COMMENT '点赞数',"
+            + "downvotes INT DEFAULT 0 COMMENT '点踩数',"
+            + "usage_count INT DEFAULT 0 COMMENT '使用次数',"
+            + "avg_rating DECIMAL(5,2) COMMENT '平均评分',"
             + "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,"
             + "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,"
-            + "INDEX idx_intent (intent),"
-            + "INDEX idx_share_level (share_level, tenant_id),"
-            + "INDEX idx_success_rate (success_rate DESC),"
-            + "INDEX idx_status (status)"
+            + "INDEX idx_task_type (task_type),"
+            + "INDEX idx_visibility (visibility, tenant_id),"
+            + "INDEX idx_author (author_id),"
+            + "INDEX idx_usage_count (usage_count DESC)"
             + ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='公共知识库'",
 
         // collaborative_recommendations
@@ -366,12 +364,12 @@ public class DatabaseInitializer {
             + "id INTEGER PRIMARY KEY AUTOINCREMENT,"
             + "user_id VARCHAR(64) NOT NULL,"
             + "tenant_id VARCHAR(64),"
-            + "action_tag VARCHAR(64) NOT NULL,"
+            + "tag VARCHAR(64) NOT NULL,"
+            + "weight DECIMAL(10,4) DEFAULT 1.0000,"
             + "action_count INT DEFAULT 1,"
-            + "last_action_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,"
+            + "last_action_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,"
             + "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,"
-            + "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,"
-            + "UNIQUE (user_id, action_tag)"
+            + "UNIQUE (user_id, tag)"
             + ")",
 
         // user_experiences
@@ -379,33 +377,32 @@ public class DatabaseInitializer {
             + "id INTEGER PRIMARY KEY AUTOINCREMENT,"
             + "user_id VARCHAR(64) NOT NULL,"
             + "tenant_id VARCHAR(64),"
-            + "query TEXT NOT NULL,"
-            + "intent VARCHAR(64) NOT NULL,"
-            + "actions TEXT,"
+            + "task_type VARCHAR(64) NOT NULL,"
+            + "task_input TEXT,"
+            + "task_output TEXT,"
             + "success BOOLEAN DEFAULT 1,"
-            + "duration_ms INT,"
-            + "error_message TEXT,"
-            + "feedback_score INT,"
-            + "feedback_text TEXT,"
-            + "share_level VARCHAR(32) DEFAULT 'PRIVATE',"
+            + "duration_ms BIGINT,"
+            + "rating INT,"
+            + "feedback TEXT,"
+            + "tags TEXT,"
             + "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,"
-            + "indexed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
+            + "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
             + ")",
 
         // shared_knowledge
         "CREATE TABLE IF NOT EXISTS shared_knowledge ("
             + "id INTEGER PRIMARY KEY AUTOINCREMENT,"
-            + "intent VARCHAR(64) NOT NULL,"
-            + "query_pattern TEXT,"
-            + "solution TEXT NOT NULL,"
-            + "success_rate DECIMAL(5,2) DEFAULT 0.00,"
-            + "usage_count INT DEFAULT 0,"
-            + "contributor_id VARCHAR(64),"
-            + "contributor_name VARCHAR(128),"
             + "tenant_id VARCHAR(64),"
-            + "share_level VARCHAR(32) DEFAULT 'PUBLIC',"
-            + "status VARCHAR(32) DEFAULT 'DRAFT',"
-            + "approved_at TIMESTAMP NULL,"
+            + "author_id VARCHAR(64),"
+            + "task_type VARCHAR(64) NOT NULL,"
+            + "title VARCHAR(256),"
+            + "content TEXT,"
+            + "tags TEXT,"
+            + "visibility VARCHAR(32) DEFAULT 'PUBLIC',"
+            + "upvotes INT DEFAULT 0,"
+            + "downvotes INT DEFAULT 0,"
+            + "usage_count INT DEFAULT 0,"
+            + "avg_rating DECIMAL(5,2),"
             + "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,"
             + "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
             + ")",
@@ -492,20 +489,19 @@ public class DatabaseInitializer {
         "CREATE INDEX IF NOT EXISTS user_permissions_idx_permission ON user_permissions (permission_level)",
         "CREATE INDEX IF NOT EXISTS user_permissions_idx_user ON user_permissions (user_id)",
         // user_behavior_tags
-        "CREATE INDEX IF NOT EXISTS user_behavior_tags_idx_tag_count ON user_behavior_tags (action_tag, action_count DESC)",
-        "CREATE INDEX IF NOT EXISTS user_behavior_tags_idx_tenant_tag ON user_behavior_tags (tenant_id, action_tag)",
+        "CREATE INDEX IF NOT EXISTS user_behavior_tags_idx_tag_count ON user_behavior_tags (tag, action_count DESC)",
+        "CREATE INDEX IF NOT EXISTS user_behavior_tags_idx_tenant_tag ON user_behavior_tags (tenant_id, tag)",
         "CREATE INDEX IF NOT EXISTS user_behavior_tags_idx_user ON user_behavior_tags (user_id)",
         // user_experiences
-        "CREATE INDEX IF NOT EXISTS user_experiences_idx_user_intent ON user_experiences (user_id, intent)",
-        "CREATE INDEX IF NOT EXISTS user_experiences_idx_intent_success ON user_experiences (intent, success)",
+        "CREATE INDEX IF NOT EXISTS user_experiences_idx_user_task_type ON user_experiences (user_id, task_type)",
+        "CREATE INDEX IF NOT EXISTS user_experiences_idx_task_type_success ON user_experiences (task_type, success)",
         "CREATE INDEX IF NOT EXISTS user_experiences_idx_tenant ON user_experiences (tenant_id)",
         "CREATE INDEX IF NOT EXISTS user_experiences_idx_created ON user_experiences (created_at)",
-        "CREATE INDEX IF NOT EXISTS user_experiences_idx_share_level ON user_experiences (share_level)",
         // shared_knowledge
-        "CREATE INDEX IF NOT EXISTS shared_knowledge_idx_intent ON shared_knowledge (intent)",
-        "CREATE INDEX IF NOT EXISTS shared_knowledge_idx_share_level ON shared_knowledge (share_level, tenant_id)",
-        "CREATE INDEX IF NOT EXISTS shared_knowledge_idx_success_rate ON shared_knowledge (success_rate DESC)",
-        "CREATE INDEX IF NOT EXISTS shared_knowledge_idx_status ON shared_knowledge (status)",
+        "CREATE INDEX IF NOT EXISTS shared_knowledge_idx_task_type ON shared_knowledge (task_type)",
+        "CREATE INDEX IF NOT EXISTS shared_knowledge_idx_visibility ON shared_knowledge (visibility, tenant_id)",
+        "CREATE INDEX IF NOT EXISTS shared_knowledge_idx_author ON shared_knowledge (author_id)",
+        "CREATE INDEX IF NOT EXISTS shared_knowledge_idx_usage_count ON shared_knowledge (usage_count DESC)",
         // collaborative_recommendations
         "CREATE INDEX IF NOT EXISTS collaborative_recommendations_idx_target ON collaborative_recommendations (target_user_id, expires_at)",
         "CREATE INDEX IF NOT EXISTS collaborative_recommendations_idx_confidence ON collaborative_recommendations (confidence_score DESC)",

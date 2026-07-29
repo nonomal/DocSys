@@ -8,5 +8,7 @@
     <typeHandlers>
         <typeHandler handler="com.DocSystem.agent.entity.TaskStatusTypeHandler"
                      javaType="com.DocSystem.agent.entity.TaskEntity$TaskStatus"/>
+        <!-- DocSysAgent: MyBatis 3.1.1 无内置 LocalDateTime 处理器(3.4+才有),补充之 -->
+        <typeHandler handler="com.DocSystem.agent.entity.LocalDateTimeTypeHandler" javaType="java.time.LocalDateTime"/>
     </typeHandlers>
 </configuration>
