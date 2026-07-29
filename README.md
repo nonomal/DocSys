@@ -36,7 +36,7 @@ MxsDoc是内置 **AI智能体** 和 **Office引擎** 的文档管理软件，支
 
 ### AI智能体
 内置AI智能体，支持任意AI大模型，零门槛文档系统智能化（无需集成，开箱即用）
-![输入图片说明](WebRoot/web/images/AI%E6%8E%A5%E5%85%A5.jpeg)
+![输入图片说明](WebRoot/web/images/AI%E6%99%BA%E8%83%BD%E4%BD%93.png)
 
 ### 文件分享
 支持文件和目录分享，支持访问权限设置和密码访问控制
