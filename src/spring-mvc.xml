@@ -26,9 +26,14 @@
     
     <!-- 使用annotation 自动注册bean,并保证@Required,@Autowired的属性被注入 -->  
     <context:component-scan base-package="com.DocSystem" >
-    	<!--context:include-filter type="annotation" expression="org.springframework.stereotype.Controller" /--> 
- 		<!--context:exclude-filter type="annotation" expression="org.springframework.stereotype.Service" /--> 
+    	<!--context:include-filter type="annotation" expression="org.springframework.stereotype.Controller" /-->
+ 		<!--context:exclude-filter type="annotation" expression="org.springframework.stereotype.Service" /-->
  	</context:component-scan>
+    <!-- DocSysAgent: mvc容器仅扫描Agent的Controller(其余组件由root容器spring-mybatis.xml装配) -->
+    <context:component-scan base-package="com.DocSystem.agent" use-default-filters="false" >
+        <context:include-filter type="annotation" expression="org.springframework.stereotype.Controller" />
+        <context:include-filter type="annotation" expression="org.springframework.web.bind.annotation.RestController" />
+    </context:component-scan>
           
     <aop:aspectj-autoproxy proxy-target-class="true">  
         <aop:include name="controllerAspect"/>  

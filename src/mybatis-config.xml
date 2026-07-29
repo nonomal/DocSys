@@ -1,7 +1,14 @@
 <?xml version="1.0" encoding="UTF-8" ?>  
 <!DOCTYPE configuration PUBLIC "-//mybatis.org//DTD Config 3.0//EN" "http://mybatis.org/dtd/mybatis-3-config.dtd">  
 <configuration>  
-    <typeAliases>  
-        <typeAlias alias="user" type="com.DocSystem.entity.User"/>  
-    </typeAliases>  
-</configuration>  
+    <typeAliases>
+        <typeAlias alias="user" type="com.DocSystem.entity.User"/>
+    </typeAliases>
+    <!-- DocSysAgent: 大小写不敏感的TaskStatus枚举处理器(仅对该枚举生效,不影响DocSys) -->
+    <typeHandlers>
+        <typeHandler handler="com.DocSystem.agent.entity.TaskStatusTypeHandler"
+                     javaType="com.DocSystem.agent.entity.TaskEntity$TaskStatus"/>
+        <!-- DocSysAgent: MyBatis 3.1.1 无内置 LocalDateTime 处理器(3.4+才有),补充之 -->
+        <typeHandler handler="com.DocSystem.agent.entity.LocalDateTimeTypeHandler" javaType="java.time.LocalDateTime"/>
+    </typeHandlers>
+</configuration>

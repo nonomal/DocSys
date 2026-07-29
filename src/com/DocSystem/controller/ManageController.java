@@ -813,9 +813,12 @@ public class ManageController extends BaseController{
 		{
 			Log.debug("resetDatabase() reset database failed: initDB error");
 			docSysErrorLog("数据库初始化失败", rt);
-			writeJson(rt, response);			
+			writeJson(rt, response);
 			return;
 		}
+		//DocSysAgent: deleteDBTabsEx 也删除了 Agent 表，initDB 只重建 DocSystem 表，
+		//这里按当前 schema 重建 Agent 表，使重置后无需重启即可继续使用 Agent。
+		triggerAgentTableRebuild();
 		writeJson(rt, response);
 	}
 	

@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.DocSystem.agent.learning.repository.UserExperienceRepository">
+
+    <resultMap id="UserExperienceResultMap" type="com.DocSystem.agent.learning.entity.UserExperience">
+        <id property="id" column="id"/>
+        <result property="userId" column="user_id"/>
+        <result property="tenantId" column="tenant_id"/>
+        <result property="taskType" column="task_type"/>
+        <result property="taskInput" column="task_input"/>
+        <result property="taskOutput" column="task_output"/>
+        <result property="success" column="success"/>
+        <result property="durationMs" column="duration_ms"/>
+        <result property="rating" column="rating"/>
+        <result property="feedback" column="feedback"/>
+        <result property="tags" column="tags"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="updatedAt" column="updated_at"/>
+    </resultMap>
+
+    <select id="findByUserId" resultMap="UserExperienceResultMap">
+        SELECT * FROM user_experiences WHERE user_id = #{userId}
+    </select>
+
+    <select id="findByUserIdAndTenantId" resultMap="UserExperienceResultMap">
+        SELECT * FROM user_experiences WHERE user_id = #{userId} AND tenant_id = #{tenantId}
+    </select>
+
+    <select id="findByTaskType" resultMap="UserExperienceResultMap">
+        SELECT * FROM user_experiences WHERE task_type = #{taskType}
+    </select>
+
+    <select id="findSuccessByUserId" resultMap="UserExperienceResultMap">
+        SELECT * FROM user_experiences
+        WHERE user_id = #{userId} AND success = true
+        ORDER BY created_at DESC
+        LIMIT #{limit}
+    </select>
+
+    <select id="findSuccessByUserIdAndTaskType" resultMap="UserExperienceResultMap">
+        SELECT * FROM user_experiences
+        WHERE user_id = #{userId} AND task_type = #{taskType} AND success = true
+        ORDER BY created_at DESC
+        LIMIT #{limit}
+    </select>
+
+    <select id="countByTaskType" resultType="map">
+        SELECT task_type AS taskType, COUNT(*) AS count
+        FROM user_experiences
+        WHERE user_id = #{userId}
+        GROUP BY task_type
+    </select>
+
+    <select id="getAverageRating" resultType="double">
+        SELECT AVG(rating) FROM user_experiences
+        WHERE user_id = #{userId} AND rating IS NOT NULL
+    </select>
+
+    <select id="findRecentSuccess" resultMap="UserExperienceResultMap">
+        SELECT * FROM user_experiences
+        WHERE created_at > #{since} AND success = true
+        ORDER BY created_at DESC
+        LIMIT #{limit}
+    </select>
+
+    <delete id="deleteByUserId">
+        DELETE FROM user_experiences WHERE user_id = #{userId}
+    </delete>
+
+    <insert id="insert" parameterType="com.DocSystem.agent.learning.entity.UserExperience" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO user_experiences (user_id, tenant_id, task_type, task_input, task_output, success, duration_ms, rating, feedback, tags, created_at, updated_at)
+        VALUES (#{userId}, #{tenantId}, #{taskType}, #{taskInput}, #{taskOutput}, #{success}, #{durationMs}, #{rating}, #{feedback}, #{tags}, #{createdAt}, #{updatedAt})
+    </insert>
+
+    <update id="updateById" parameterType="com.DocSystem.agent.learning.entity.UserExperience">
+        UPDATE user_experiences SET
+            user_id = #{userId},
+            tenant_id = #{tenantId},
+            task_type = #{taskType},
+            task_input = #{taskInput},
+            task_output = #{taskOutput},
+            success = #{success},
+            duration_ms = #{durationMs},
+            rating = #{rating},
+            feedback = #{feedback},
+            tags = #{tags},
+            updated_at = #{updatedAt}
+        WHERE id = #{id}
+    </update>
+
+    <delete id="deleteById">
+        DELETE FROM user_experiences WHERE id = #{id}
+    </delete>
+
+</mapper>

@@ -14471,6 +14471,22 @@ public class BaseController  extends BaseFunction{
 			"sys_config",
 			"doc_share",
 	};
+	//DocSysAgent: Agent 建的表(见 DatabaseInitializer.REQUIRED_TABLES)。单独记录,
+	//不并入 DBTabNameMap —— 后者与 ObjMemberListMap / objType 的索引强绑定,不能改动。
+	//仅用于 resetDatabase 的 deleteDBTabsEx 一并清除 Agent 表。
+	protected final static String [] AgentDBTabNameMap = {
+			"agent_sessions",
+			"agent_tasks",
+			"audit_logs",
+			"skill_metadata",
+			"user_permissions",
+			"user_behavior_tags",
+			"user_experiences",
+			"shared_knowledge",
+			"collaborative_recommendations",
+			"skill_ratings",
+			"similar_users_cache",
+	};
 	static JSONArray[] ObjMemberListMap = {null,null,null,null,null,null,null,null,null,null,null};
 	
 	//入口页将根据该标志来确定跳转到install还是index.html
@@ -14700,7 +14716,10 @@ public class BaseController  extends BaseFunction{
 				addDelayTaskForReposCacheClean(10, 600L); //10分钟后开始清除仓库缓存
 								
 				FileUtil.saveDocContentToFile("ok", docSysIniPath,  "docSysIniState", "UTF-8");
-				
+
+				//DocSysAgent: 数据库已就绪，触发 Agent 初始化（建表 + LLM 同步）
+				triggerAgentInit();
+
 				return "ok";
 			}
 		}
@@ -14737,11 +14756,62 @@ public class BaseController  extends BaseFunction{
 			
 			//启动仓库缓存自动清理任务（每天执行一次）
 			addDelayTaskForReposCacheClean(10, 600L); //10分钟后开始清除仓库缓存
+
+			//DocSysAgent: 数据库已就绪，触发 Agent 初始化（建表 + LLM 同步）
+			triggerAgentInit();
 		}
-		
+
 		FileUtil.saveDocContentToFile(ret, docSysIniPath,  "docSysIniState", "UTF-8");
 
 		return ret;
+	}
+
+	/**
+	 * DocSysAgent 初始化钩子。
+	 * 在 docSysInit 确认数据库就绪的成功路径中调用，委托给 Agent 侧的
+	 * AgentInitService（建 agent_* 表 + 从 DocSys 内存同步 LLM 配置）。
+	 * 全程 try/catch 兜底：Agent 初始化失败不得影响 DocSys 自身启动/初始化。
+	 * 通过当前 WebApplicationContext 取 bean，避免在 BaseController 顶部新增 import
+	 * 或与 Agent 形成编译期强耦合（Agent 缺席时静默跳过）。
+	 */
+	private void triggerAgentInit() {
+		try {
+			org.springframework.web.context.WebApplicationContext wac =
+				org.springframework.web.context.ContextLoader.getCurrentWebApplicationContext();
+			if(wac == null) {
+				Log.info("triggerAgentInit() WebApplicationContext 不可用，跳过 Agent 初始化");
+				return;
+			}
+			com.DocSystem.agent.config.AgentInitService agentInit =
+				wac.getBean(com.DocSystem.agent.config.AgentInitService.class);
+			agentInit.initAfterDocSysReady();
+		} catch (Exception e) {
+			Log.info("triggerAgentInit() Agent 初始化失败（不影响 DocSys）: " + e.getMessage());
+			Log.info(e);
+		}
+	}
+
+	/**
+	 * DocSysAgent 表重建钩子。供管理后台 resetDatabase 在 deleteDBTabsEx 删除
+	 * (含 Agent 表) 后调用，立即按当前 schema 重建 Agent 表，避免重置后不重启
+	 * 使用 Agent 时表不存在报错。委托给 AgentInitService.rebuildTables()。
+	 * try/catch 兜底：Agent 表重建失败不影响 DocSys 的 reset 结果。
+	 */
+	protected void triggerAgentTableRebuild() {
+		try {
+			org.springframework.web.context.WebApplicationContext wac =
+				org.springframework.web.context.ContextLoader.getCurrentWebApplicationContext();
+			if(wac == null) {
+				Log.info("triggerAgentTableRebuild() WebApplicationContext 不可用，跳过 Agent 表重建");
+				return;
+			}
+			com.DocSystem.agent.config.AgentInitService agentInit =
+				wac.getBean(com.DocSystem.agent.config.AgentInitService.class);
+			agentInit.rebuildTables();
+		} catch (Exception e) {
+			Log.info("triggerAgentTableRebuild() Agent 表重建失败（不影响 DocSys）: " + e.getMessage());
+			Log.info(e);
+		}
 	}
 
 	protected void restartClusterServer() {
@@ -18915,8 +18985,14 @@ public class BaseController  extends BaseFunction{
 		for(int i=0; i< DBTabNameMap.length; i++)
 		{
 			deleteDBTab(DBTabNameMap[i].toUpperCase(), type, url, user, pwd);
-			deleteDBTab(DBTabNameMap[i].toLowerCase(), type, url, user, pwd); //删除小写的数据库			
-		}	
+			deleteDBTab(DBTabNameMap[i].toLowerCase(), type, url, user, pwd); //删除小写的数据库
+		}
+		//DocSysAgent: 一并清除 Agent 建的表。Agent 表名本身即小写,大小写两删保持与上面一致的健壮性。
+		for(int i=0; i< AgentDBTabNameMap.length; i++)
+		{
+			deleteDBTab(AgentDBTabNameMap[i].toUpperCase(), type, url, user, pwd);
+			deleteDBTab(AgentDBTabNameMap[i].toLowerCase(), type, url, user, pwd);
+		}
 		return true;
 	}
 

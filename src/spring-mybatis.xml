@@ -18,8 +18,13 @@
     <!-- 引入属性文件 -->  
     <context:property-placeholder location="classpath:jdbc.properties" ignore-resource-not-found="true"/> 
     
-    <!-- 自动扫描(自动注入) -->  
-    <context:component-scan base-package="com.DocSystem.service" />  
+    <!-- 自动扫描(自动注入) -->
+    <context:component-scan base-package="com.DocSystem.service" />
+    <!-- DocSysAgent: root容器扫描Agent非Controller组件(Controller交由spring-mvc.xml的mvc容器) -->
+    <context:component-scan base-package="com.DocSystem.agent" >
+        <context:exclude-filter type="annotation" expression="org.springframework.stereotype.Controller" />
+        <context:exclude-filter type="annotation" expression="org.springframework.web.bind.annotation.RestController" />
+    </context:component-scan>
     <!-- 配置数据源 -->  
     <bean id="dataSource" class="com.mchange.v2.c3p0.ComboPooledDataSource"  
         destroy-method="close">  
@@ -44,11 +49,19 @@
         <property name="dataSource" ref="dataSource" />  
         <!-- 自动扫描entity目录, 省掉Configuration.xml里的手工配置 -->  
         <property name="configLocation" value="classpath:mybatis-config.xml" />  
-        <property name="mapperLocations" value="classpath:com/DocSystem/mapping/*.xml" />  
+        <!-- DocSysAgent: 用 <array> 显式多路径。mybatis-spring 1.1.1 对逗号分隔的
+             单字符串 value 解析不可靠（会当成单个 location 导致 DocSystem 自身 mapper
+             加载失败），必须用 list/array 让每条路径各自解析为 Resource[]。 -->
+        <property name="mapperLocations">
+            <array>
+                <value>classpath:com/DocSystem/mapping/*.xml</value>
+                <value>classpath:mapper/*.xml</value>
+            </array>
+        </property>
     </bean>  
   
     <bean class="org.mybatis.spring.mapper.MapperScannerConfigurer">  
-        <property name="basePackage"  value="com.DocSystem.dao" />  
+        <property name="basePackage"  value="com.DocSystem.dao,com.DocSystem.agent.repository,com.DocSystem.agent.session,com.DocSystem.agent.learning.repository" />
         <property name="sqlSessionFactoryBeanName" value="sqlSessionFactory" />  
     </bean>  
     <!-- 配置事务管理器 -->  

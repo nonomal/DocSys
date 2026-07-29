@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.DocSystem.agent.learning.repository.UserPermissionRepository">
+
+    <resultMap id="UserPermissionResultMap" type="com.DocSystem.agent.learning.entity.UserPermission">
+        <id property="id" column="id"/>
+        <result property="userId" column="user_id"/>
+        <result property="tenantId" column="tenant_id"/>
+        <result property="roleName" column="role_name"/>
+        <result property="departmentId" column="department_id"/>
+        <result property="permissionLevel" column="permission_level"/>
+        <result property="createdAt" column="created_at"/>
+    </resultMap>
+
+    <select id="findByUserId" resultMap="UserPermissionResultMap">
+        SELECT * FROM user_permissions WHERE user_id = #{userId}
+    </select>
+
+    <select id="findByUserIdAndTenantId" resultMap="UserPermissionResultMap">
+        SELECT * FROM user_permissions WHERE user_id = #{userId} AND tenant_id = #{tenantId}
+    </select>
+
+    <select id="findAllUserIds" resultType="string">
+        SELECT DISTINCT user_id FROM user_permissions
+    </select>
+
+    <select id="findUserIdsByTenantId" resultType="string">
+        SELECT DISTINCT user_id FROM user_permissions WHERE tenant_id = #{tenantId}
+    </select>
+
+    <delete id="deleteByUserId">
+        DELETE FROM user_permissions WHERE user_id = #{userId}
+    </delete>
+
+    <select id="findAll" resultMap="UserPermissionResultMap">
+        SELECT * FROM user_permissions
+    </select>
+
+    <insert id="insert" parameterType="com.DocSystem.agent.learning.entity.UserPermission" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO user_permissions (user_id, tenant_id, role_name, department_id, permission_level, created_at)
+        VALUES (#{userId}, #{tenantId}, #{roleName}, #{departmentId}, #{permissionLevel}, #{createdAt})
+    </insert>
+
+    <update id="updateById" parameterType="com.DocSystem.agent.learning.entity.UserPermission">
+        UPDATE user_permissions SET
+            user_id = #{userId},
+            tenant_id = #{tenantId},
+            role_name = #{roleName},
+            department_id = #{departmentId},
+            permission_level = #{permissionLevel}
+        WHERE id = #{id}
+    </update>
+
+    <delete id="deleteById">
+        DELETE FROM user_permissions WHERE id = #{id}
+    </delete>
+
+</mapper>

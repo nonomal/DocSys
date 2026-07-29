@@ -1,0 +1,3557 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DocSys AI Agent</title>
+    <link rel="stylesheet" href="/DocSystem/web/agent/css/styles.css">
+    <!-- Markdown + Mermaid (local copies for offline/intranet use) -->
+    <script src="/DocSystem/web/static/agent/marked/marked.min.js"></script>
+    <script src="/DocSystem/web/static/agent/mermaid/mermaid.min.js"></script>
+    <style>
+        /* Mermaid diagram container */
+        .mermaid-render { text-align: center; margin: 12px 0; }
+        .mermaid-render svg { max-width: 100%; }
+        /* Code block styling for JSON */
+        .ai-json-block {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            border-radius: 8px;
+            padding: 12px 16px;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            overflow-x: auto;
+            white-space: pre-wrap;
+            margin: 8px 0;
+        }
+        .ai-json-key { color: #9cdcfe; }
+        .ai-json-str { color: #ce9178; }
+        .ai-json-num { color: #b5cea8; }
+        .ai-json-bool { color: #569cd6; }
+        .ai-json-null { color: #569cd6; }
+        .ai-json-bracket { color: #ffd700; }
+        /* Rendered Markdown styling */
+        .ai-markdown-render { line-height: 1.7; }
+        .ai-markdown-render h1,.ai-markdown-render h2,.ai-markdown-render h3 { margin: 12px 0 6px; color: #333; }
+        .ai-markdown-render p { margin: 6px 0; }
+        .ai-markdown-render code { background: #f0f0f0; padding: 2px 5px; border-radius: 3px; font-size: 13px; }
+        .ai-markdown-render pre code { background: #1e1e1e; color: #d4d4d4; padding: 12px; display: block; border-radius: 6px; }
+        .ai-markdown-render ul,.ai-markdown-render ol { padding-left: 24px; margin: 6px 0; }
+        .ai-markdown-render blockquote { border-left: 3px solid #009a61; padding-left: 12px; color: #666; margin: 8px 0; }
+        .ai-markdown-render table { border-collapse: collapse; width: 100%; margin: 8px 0; }
+        .ai-markdown-render th,.ai-markdown-render td { border: 1px solid #ddd; padding: 6px 12px; text-align: left; }
+        .ai-markdown-render th { background: #f5f5f5; }
+        body.dark-theme .ai-markdown-render h1,body.dark-theme .ai-markdown-render h2,body.dark-theme .ai-markdown-render h3 { color: #e0e0e0; }
+        body.dark-theme .ai-markdown-render code { background: #2a2a4a; }
+        body.dark-theme .ai-markdown-render blockquote { border-color: #00ff88; color: #888; }
+        body.dark-theme .ai-markdown-render th { background: #16213e; }
+        body.dark-theme .ai-markdown-render th,body.dark-theme .ai-markdown-render td { border-color: #3a3a5a; }
+    </style>
+    <style>
+        /* DocSys Style - Professional, No Emojis */
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            font-family: Verdana, "Lantinghei SC", "Hiragino Sans GB", "Microsoft Yahei", Helvetica, arial, sans-serif;
+            background: #f5f5f5;
+            color: #333;
+            height: 100vh;
+            overflow: hidden;
+        }
+        
+        /* Login Screen */
+        .login-container {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            background: linear-gradient(135deg, #009a61 0%, #007a4d 100%);
+        }
+        
+        .login-box {
+            background: #fff;
+            border-radius: 4px;
+            padding: 40px;
+            width: 380px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+        }
+        
+        .login-header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        
+        .login-header h2 {
+            color: #009a61;
+            font-size: 24px;
+            font-weight: 500;
+            margin-bottom: 8px;
+        }
+        
+        .login-header p {
+            color: #666;
+            font-size: 13px;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        .form-group label {
+            display: block;
+            margin-bottom: 6px;
+            color: #555;
+            font-size: 13px;
+        }
+        
+        .form-group input {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid #ddd;
+            border-radius: 3px;
+            font-size: 14px;
+            outline: none;
+            transition: border-color 0.3s;
+        }
+        
+        .form-group input:focus {
+            border-color: #009a61;
+        }
+        
+        .login-btn {
+            width: 100%;
+            padding: 12px;
+            border: none;
+            border-radius: 3px;
+            background: #009a61;
+            color: white;
+            font-size: 15px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        
+        .login-btn:hover {
+            background: #007a4d;
+        }
+        
+        .login-btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        
+        .login-tip {
+            text-align: center;
+            margin-top: 16px;
+            color: #999;
+            font-size: 12px;
+        }
+        
+        /* App Container */
+        .app-container {
+            display: none;
+            height: 100vh;
+        }
+        
+        .app-container.active {
+            display: flex;
+        }
+        
+        /* Sidebar */
+        .sidebar {
+            width: 220px;
+            background: #fff;
+            border-right: 1px solid #e0e0e0;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 2px 0 5px rgba(0,0,0,0.05);
+        }
+        
+        .sidebar-header {
+            padding: 15px 20px;
+            border-bottom: 1px solid #e0e0e0;
+            background: #009a61;
+        }
+        
+        .sidebar-header h3 {
+            color: #fff;
+            font-size: 16px;
+            font-weight: 500;
+        }
+        
+        .sidebar-content {
+            flex: 1;
+            min-height: 0;
+            padding: 15px;
+            overflow-y: auto;
+        }
+        
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+            color: #999;
+            font-size: 12px;
+            text-transform: uppercase;
+        }
+        
+        .section-btn {
+            background: none;
+            border: none;
+            color: #009a61;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: bold;
+        }
+        
+        .session-list {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+        
+        .session-item {
+            padding: 10px 12px;
+            border-radius: 3px;
+            cursor: pointer;
+            color: #555;
+            font-size: 13px;
+            transition: all 0.2s;
+        }
+        
+        .session-item:hover {
+            background: #f5f5f5;
+        }
+        
+        .session-item.active {
+            background: #e8f5e9;
+            color: #009a61;
+            font-weight: 500;
+        }
+        
+        .sidebar-footer {
+            padding: 12px 15px;
+            border-top: 1px solid #e0e0e0;
+        }
+        
+        .sidebar-btn {
+            width: 100%;
+            padding: 10px;
+            border-radius: 3px;
+            background: none;
+            border: 1px solid #ddd;
+            color: #555;
+            cursor: pointer;
+            text-align: left;
+            font-size: 13px;
+            margin-bottom: 8px;
+            transition: all 0.2s;
+        }
+        
+        .sidebar-btn:hover {
+            background: #f5f5f5;
+            border-color: #009a61;
+            color: #009a61;
+        }
+        
+        /* Main Content */
+        .main-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            background: #f5f5f5;
+        }
+        
+        .chat-container {
+            flex: 1;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+            max-width: 1000px;
+            margin: 0 auto;
+            width: 100%;
+            background: #fff;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+        }
+        
+        .messages-area {
+            flex: 1;
+            min-height: 0;
+            padding: 20px;
+            overflow-y: auto;
+            background: #fafafa;
+            scroll-behavior: smooth;
+        }
+
+        /* Custom Scrollbar - Modern Style */
+        .messages-area::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .messages-area::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 4px;
+        }
+
+        .messages-area::-webkit-scrollbar-thumb {
+            background: #c1c1c1;
+            border-radius: 4px;
+        }
+
+        .messages-area::-webkit-scrollbar-thumb:hover {
+            background: #a1a1a1;
+        }
+        
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #999;
+        }
+        
+        .empty-state h3 {
+            font-size: 18px;
+            color: #555;
+            margin-bottom: 10px;
+        }
+        
+        .empty-state p {
+            font-size: 13px;
+            margin-bottom: 20px;
+        }
+        
+        .quick-commands {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+        }
+        
+        .quick-tag {
+            padding: 6px 14px;
+            border-radius: 3px;
+            background: #e8f5e9;
+            color: #009a61;
+            cursor: pointer;
+            font-size: 12px;
+            border: 1px solid #c8e6c9;
+            transition: all 0.2s;
+        }
+        
+        .quick-tag:hover {
+            background: #c8e6c9;
+        }
+        
+        .message {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 20px;
+            align-items: flex-start;
+            animation: messageSlideIn 0.3s ease;
+        }
+
+        @keyframes messageSlideIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        .message-avatar {
+            width: 38px;
+            height: 38px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #43cea2 0%, #185a9d 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #fff;
+            font-size: 14px;
+            font-weight: bold;
+            flex-shrink: 0;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+            margin: 0 10px;
+        }
+
+        .message.user .message-avatar {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            order: 1;
+        }
+        
+        .message-content {
+            flex: 1;
+            max-width: 85%;
+        }
+
+        .message-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 6px;
+            align-items: center;
+        }
+
+        .message-sender {
+            font-weight: 600;
+            font-size: 13px;
+            color: #333;
+        }
+
+        .message-time {
+            color: #999;
+            font-size: 11px;
+        }
+
+        .message-body {
+            background: #fff;
+            padding: 14px 18px;
+            border-radius: 16px;
+            border: 1px solid #e8e8e8;
+            font-size: 14px;
+            line-height: 1.7;
+            white-space: pre-wrap;
+            word-break: break-word;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+        }
+
+        .message.user {
+            flex-direction: row-reverse;
+        }
+
+        .message.user .message-content {
+            align-items: flex-end;
+        }
+
+        .message.user .message-body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #fff;
+            border: none;
+            border-bottom-right-radius: 4px;
+        }
+
+        .message.assistant .message-body {
+            border-bottom-left-radius: 4px;
+        }
+
+        .message.loading .message-body {
+            padding: 16px;
+        }
+
+        /* Generating animation - Claude Code style */
+        .generating-indicator {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            color: #009a61;
+            font-size: 12px;
+        }
+
+        .generating-indicator::before {
+            content: '';
+            display: inline-block;
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: #009a61;
+            animation: pulse-dot 1s ease-in-out infinite;
+        }
+
+        @keyframes pulse-dot {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.4; transform: scale(0.7); }
+        }
+
+        .typing-cursor {
+            display: inline-block;
+            width: 2px;
+            height: 1em;
+            background: #009a61;
+            margin-left: 2px;
+            animation: blink-cursor 0.8s step-end infinite;
+            vertical-align: text-bottom;
+        }
+
+        @keyframes blink-cursor {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0; }
+        }
+
+        .pending-badge {
+            position: absolute;
+            top: -8px;
+            right: -8px;
+            background: #f57c00;
+            color: white;
+            font-size: 10px;
+            padding: 2px 6px;
+            border-radius: 10px;
+            font-weight: bold;
+        }
+
+        @keyframes slideIn {
+            from { transform: translateX(100%); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+
+        @keyframes slideOut {
+            from { transform: translateX(0); opacity: 1; }
+            to { transform: translateX(100%); opacity: 0; }
+        }
+
+        /* Toast styles */
+        .toast-container {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 10000;
+        }
+
+        .toast {
+            padding: 12px 20px;
+            background: #333;
+            color: white;
+            border-radius: 3px;
+            font-size: 13px;
+            margin-bottom: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+        }
+
+        .toast.success { background: #009a61; }
+        .toast.error { background: #d32f2f; }
+        .toast.warning { background: #f57c00; }
+        .toast.info { background: #1976d2; }
+        
+        /* Input Area - 优化版 */
+        .input-area {
+            padding: 14px 20px 16px;
+            border-top: 1px solid #e0e0e0;
+            background: linear-gradient(to bottom, #fafafa, #fff);
+        }
+
+        .input-container {
+            display: flex;
+            gap: 8px;
+            align-items: flex-end;
+            background: #fff;
+            border: 1.5px solid #ddd;
+            border-radius: 14px;
+            padding: 8px 10px;
+            transition: border-color 0.15s, box-shadow 0.15s;
+        }
+
+        .input-container:focus-within {
+            border-color: #009a61;
+            box-shadow: 0 0 0 3px rgba(0,154,97,0.1);
+        }
+
+        .input-container textarea {
+            flex: 1;
+            padding: 8px 10px;
+            border: none;
+            font-size: 15px;
+            font-family: inherit;
+            resize: none;
+            outline: none;
+            min-height: 44px;
+            max-height: 200px;
+            line-height: 1.5;
+            background: transparent;
+        }
+
+        .input-container textarea::placeholder {
+            color: #999;
+        }
+        
+        .send-btn {
+            flex-shrink: 0;
+            width: 44px;
+            height: 44px;
+            padding: 0;
+            border-radius: 12px;
+            border: none;
+            background: linear-gradient(135deg, #009a61 0%, #00c47a 100%);
+            color: white;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.15s, box-shadow 0.15s, opacity 0.15s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 2px 6px rgba(0,154,97,0.3);
+        }
+
+        .send-btn:hover:not(:disabled) {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 10px rgba(0,154,97,0.4);
+        }
+
+        .send-btn:active:not(:disabled) {
+            transform: translateY(0);
+        }
+
+        .send-btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            opacity: 0.6;
+            box-shadow: none;
+        }
+
+        .send-btn svg {
+            width: 20px;
+            height: 20px;
+        }
+
+        .upload-buttons {
+            display: flex;
+            gap: 4px;
+            flex-shrink: 0;
+        }
+
+        .upload-btn {
+            width: 36px;
+            height: 36px;
+            padding: 0;
+            border-radius: 10px;
+            border: 1px solid transparent;
+            background: transparent;
+            color: #666;
+            font-size: 16px;
+            cursor: pointer;
+            transition: all 0.15s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .upload-btn:hover {
+            background: #f0f0f0;
+            border-color: #ddd;
+            color: #009a61;
+        }
+
+        .input-tip {
+            margin-top: 8px;
+            color: #999;
+            font-size: 11px;
+        }
+        
+        /* Dialog */
+        .dialog-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.5);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+        
+        .dialog-overlay.active {
+            display: flex;
+        }
+        
+        .dialog {
+            background: #fff;
+            border-radius: 4px;
+            width: 90%;
+            max-width: 550px;
+            max-height: 80vh;
+            overflow: hidden;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+        }
+        
+        .dialog-header {
+            padding: 15px 20px;
+            border-bottom: 1px solid #e0e0e0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .dialog-title {
+            font-size: 16px;
+            font-weight: 500;
+            color: #333;
+        }
+        
+        .dialog-close {
+            background: none;
+            border: none;
+            color: #999;
+            font-size: 20px;
+            cursor: pointer;
+        }
+        
+        .dialog-body {
+            padding: 20px;
+            overflow-y: auto;
+            max-height: 60vh;
+        }
+
+        /* Upload Progress Bar */
+        .upload-progress-container {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-top: 6px;
+        }
+
+        .upload-progress-bar {
+            flex: 1;
+            height: 6px;
+            background: rgba(0, 154, 97, 0.1);
+            border-radius: 3px;
+            overflow: hidden;
+        }
+
+        .upload-progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #009a61, #00c853);
+            border-radius: 3px;
+            transition: width 0.2s ease;
+        }
+
+        .upload-progress-text {
+            font-size: 12px;
+            color: #009a61;
+            min-width: 35px;
+            text-align: right;
+        }
+
+        .message[role="system"] .message-body {
+            white-space: pre-wrap;
+        }
+        }
+        
+        .dialog-footer {
+            padding: 12px 20px;
+            border-top: 1px solid #e0e0e0;
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+        }
+        
+        /* Skills */
+        .skills-grid {
+            display: grid;
+            gap: 10px;
+        }
+        
+        .skill-card {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            padding: 14px;
+            background: #fafafa;
+            border-radius: 8px;
+            border: 1px solid #eee;
+            transition: all 0.2s ease;
+        }
+
+        .skill-card:hover {
+            border-color: #009a61;
+            box-shadow: 0 2px 8px rgba(0, 154, 97, 0.1);
+            transform: translateY(-1px);
+        }
+
+        .skill-card.inactive {
+            opacity: 0.6;
+        }
+
+        .skill-icon {
+            width: 40px;
+            height: 40px;
+            border-radius: 10px;
+            background: linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #009a61;
+            font-size: 18px;
+            font-weight: bold;
+            box-shadow: 0 2px 6px rgba(0, 154, 97, 0.2);
+        }
+        
+        .skill-info {
+            flex: 1;
+        }
+        
+        .skill-info h4 {
+            font-size: 14px;
+            margin-bottom: 4px;
+            color: #333;
+        }
+        
+        .skill-info p {
+            color: #999;
+            font-size: 12px;
+        }
+
+        /* Toggle Switch */
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 44px;
+            height: 24px;
+            flex-shrink: 0;
+        }
+
+        .switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #ccc;
+            transition: 0.3s;
+            border-radius: 24px;
+        }
+
+        .slider::before {
+            position: absolute;
+            content: "";
+            height: 18px;
+            width: 18px;
+            left: 3px;
+            bottom: 3px;
+            background-color: white;
+            transition: 0.3s;
+            border-radius: 50%;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+        }
+
+        input:checked + .slider {
+            background-color: #009a61;
+        }
+
+        input:checked + .slider::before {
+            transform: translateX(20px);
+        }
+
+        input:focus + .slider {
+            box-shadow: 0 0 1px #009a61;
+        }
+
+        /* Soul Evolution Panel */
+        .soul-panel {
+            margin: 15px;
+            padding: 14px;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            border-radius: 8px;
+            color: #fff;
+            position: relative;
+            overflow: hidden;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+        }
+
+        .soul-panel::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: linear-gradient(90deg, #00ff88, #a8dadc, #00ff88);
+            background-size: 200% 100%;
+            animation: shimmer 3s linear infinite;
+        }
+
+        @keyframes shimmer {
+            0% { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
+        }
+
+        .soul-panel-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 12px;
+        }
+
+        .soul-title {
+            font-size: 13px;
+            font-weight: 600;
+            color: #a8dadc;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .soul-title::before {
+            content: '✦';
+            color: #00ff88;
+            animation: sparkle 1.5s ease-in-out infinite;
+        }
+
+        @keyframes sparkle {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.5; transform: scale(0.8); }
+        }
+
+        .soul-level {
+            font-size: 11px;
+            padding: 3px 10px;
+            background: rgba(0, 255, 136, 0.15);
+            border: 1px solid rgba(0, 255, 136, 0.3);
+            border-radius: 12px;
+            color: #00ff88;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+        }
+
+        .soul-status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 12px;
+            padding: 8px 10px;
+            background: rgba(0,0,0,0.2);
+            border-radius: 6px;
+        }
+
+        .health-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+
+        .health-dot.healthy {
+            background: #00ff88;
+            box-shadow: 0 0 10px #00ff88, 0 0 20px rgba(0, 255, 136, 0.3);
+        }
+
+        .health-dot.degraded {
+            background: #ffd700;
+            box-shadow: 0 0 10px #ffd700, 0 0 20px rgba(255, 215, 0, 0.3);
+            animation: pulse-warning 1.5s infinite;
+        }
+
+        .health-dot.unhealthy {
+            background: #ff4757;
+            box-shadow: 0 0 10px #ff4757, 0 0 20px rgba(255, 71, 87, 0.3);
+            animation: pulse-warning 1s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.7; transform: scale(1.1); }
+        }
+
+        @keyframes pulse-warning {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.5; transform: scale(1.15); }
+        }
+
+        .health-text {
+            font-size: 12px;
+            color: #ccc;
+        }
+
+        .soul-stats {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+        }
+
+        .soul-stat {
+            background: rgba(255,255,255,0.05);
+            padding: 10px 12px;
+            border-radius: 6px;
+            border: 1px solid rgba(255,255,255,0.05);
+            transition: all 0.3s ease;
+        }
+
+        .soul-stat:hover {
+            background: rgba(255,255,255,0.08);
+            border-color: rgba(0, 255, 136, 0.2);
+        }
+
+        .soul-stat-label {
+            font-size: 10px;
+            color: #888;
+            margin-bottom: 4px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .soul-stat-value {
+            font-size: 16px;
+            font-weight: 700;
+            color: #00ff88;
+            text-shadow: 0 0 10px rgba(0, 255, 136, 0.3);
+        }
+
+        .soul-progress {
+            margin-top: 12px;
+        }
+
+        .soul-progress-label {
+            display: flex;
+            justify-content: space-between;
+            font-size: 11px;
+            color: #888;
+            margin-bottom: 6px;
+        }
+
+        .soul-progress-bar {
+            height: 8px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 4px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .soul-progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #00ff88, #a8dadc);
+            border-radius: 4px;
+            transition: width 0.5s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .soul-progress-fill::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
+            animation: shine 2s infinite;
+        }
+
+        @keyframes shine {
+            0% { transform: translateX(-100%); }
+            100% { transform: translateX(100%); }
+        }
+
+        /* Learning indicator */
+        .soul-panel.learning::after {
+            content: '学习中...';
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            font-size: 10px;
+            color: #ffd700;
+            animation: blink 1s infinite;
+        }
+
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+
+        /* Help Dialog */
+        .help-search {
+            margin-bottom: 16px;
+        }
+
+        .help-section {
+            margin-bottom: 16px;
+        }
+
+        .help-section-title {
+            font-size: 13px;
+            font-weight: 600;
+            color: #009a61;
+            margin-bottom: 8px;
+            padding-bottom: 4px;
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        .help-commands {
+            display: grid;
+            gap: 6px;
+        }
+
+        .help-cmd {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            padding: 8px 10px;
+            background: #fafafa;
+            border-radius: 4px;
+            font-size: 13px;
+        }
+
+        .help-cmd:hover {
+            background: #f0f0f0;
+        }
+
+        .help-cmd-name {
+            font-family: 'Courier New', monospace;
+            color: #009a61;
+            font-weight: 600;
+            min-width: 120px;
+            flex-shrink: 0;
+        }
+
+        .help-cmd-desc {
+            color: #666;
+            flex: 1;
+        }
+
+        .help-shortcuts {
+            margin-top: 16px;
+            padding-top: 16px;
+            border-top: 1px solid #e0e0e0;
+        }
+
+        .shortcut-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 8px;
+        }
+
+        .shortcut {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+            color: #666;
+        }
+
+        kbd {
+            display: inline-block;
+            padding: 2px 6px;
+            background: #f5f5f5;
+            border: 1px solid #ddd;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+            font-size: 11px;
+            color: #333;
+        }
+
+        /* Settings */
+        .settings-form {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+        
+        .form-row {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+        
+        .form-row label {
+            color: #555;
+            font-size: 13px;
+        }
+        
+        .form-row input,
+        .form-row select {
+            padding: 10px;
+            border-radius: 3px;
+            border: 1px solid #ddd;
+            background: #fff;
+            color: #333;
+            font-size: 13px;
+        }
+        
+        .form-row input:focus,
+        .form-row select:focus {
+            border-color: #009a61;
+            outline: none;
+        }
+        
+        .btn {
+            padding: 8px 18px;
+            border-radius: 3px;
+            border: none;
+            cursor: pointer;
+            font-size: 13px;
+        }
+        
+        .btn-primary {
+            background: #009a61;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #007a4d;
+        }
+
+        .btn-small {
+            padding: 6px 14px;
+            font-size: 12px;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+            background: #f5f5f5;
+            color: #333;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-small:hover {
+            border-color: #009a61;
+            color: #009a61;
+        }
+
+        .btn-small.btn-primary {
+            background: #009a61;
+            color: white;
+            border-color: #009a61;
+        }
+
+        .btn-small.btn-primary:hover {
+            background: #007a4d;
+        }
+
+        .btn-secondary {
+            background: #fff;
+            border: 1px solid #ddd;
+            color: #555;
+        }
+        
+        .btn-secondary:hover {
+            background: #f5f5f5;
+        }
+
+        /* Dark Theme */
+        body.dark-theme {
+            background: #1a1a2e;
+            color: #e0e0e0;
+        }
+        body.dark-theme .sidebar {
+            background: #16213e;
+            border-color: #2a2a4a;
+        }
+        body.dark-theme .sidebar-header {
+            background: #0f3460;
+        }
+        body.dark-theme .chat-container {
+            background: #1a1a2e;
+        }
+        body.dark-theme .messages-area {
+            background: #1a1a2e;
+        }
+        body.dark-theme .message-body {
+            background: #2a2a4a;
+            color: #e0e0e0;
+            border-color: #3a3a5a;
+        }
+        body.dark-theme .input-area {
+            background: #16213e;
+            border-color: #2a2a4a;
+        }
+        body.dark-theme .input-container textarea {
+            background: #2a2a4a;
+            color: #e0e0e0;
+            border-color: #3a3a5a;
+        }
+        body.dark-theme .input-container textarea:focus {
+            border-color: #00ff88;
+        }
+        body.dark-theme .send-btn {
+            background: #009a61;
+        }
+        body.dark-theme .session-item {
+            color: #b0b0b0;
+        }
+        body.dark-theme .session-item:hover {
+            background: #2a2a4a;
+        }
+        body.dark-theme .session-item.active {
+            background: #0f3460;
+            color: #00ff88;
+        }
+        body.dark-theme .quick-tag {
+            background: #0f3460;
+            color: #00ff88;
+            border-color: #009a61;
+        }
+        body.dark-theme .empty-state h3 {
+            color: #e0e0e0;
+        }
+        body.dark-theme .empty-state p {
+            color: #888;
+        }
+        body.dark-theme .upload-btn {
+            background: transparent;
+            border-color: transparent;
+            color: #b0b0b0;
+        }
+        body.dark-theme .upload-btn:hover {
+            background: #2a2a4a;
+            border-color: #3a3a5a;
+            color: #00ff88;
+        }
+        body.dark-theme .input-container {
+            background: #1a1a2e;
+            border-color: #2a2a4a;
+        }
+        body.dark-theme .input-container:focus-within {
+            border-color: #00ff88;
+            box-shadow: 0 0 0 3px rgba(0,255,136,0.15);
+        }
+        body.dark-theme .input-area {
+            background: linear-gradient(to bottom, #16213e, #1a1a2e);
+        }
+        body.dark-theme .input-shortcut kbd {
+            background: #2a2a4a;
+            border-color: #3a3a5a;
+            color: #b0b0b0;
+        }
+        body.dark-theme .input-tip {
+            color: #888;
+        }
+        body.dark-theme .char-counter {
+            color: #888;
+        }
+        body.dark-theme .dialog {
+            background: #16213e;
+        }
+        body.dark-theme .dialog-header {
+            border-color: #2a2a4a;
+        }
+        body.dark-theme .dialog-body {
+            border-color: #2a2a4a;
+        }
+        body.dark-theme .dialog-title {
+            color: #e0e0e0;
+        }
+        body.dark-theme .help-section-title {
+            color: #00ff88;
+            border-color: #2a2a4a;
+        }
+        body.dark-theme .help-cmd {
+            background: #2a2a4a;
+            color: #b0b0b0;
+        }
+        body.dark-theme .help-cmd:hover {
+            background: #3a3a5a;
+        }
+        body.dark-theme .help-cmd-name {
+            color: #00ff88;
+        }
+        body.dark-theme .help-cmd-desc {
+            color: #888;
+        }
+        body.dark-theme .form-row label {
+            color: #b0b0b0;
+        }
+        body.dark-theme .form-row input,
+        body.dark-theme .form-row select {
+            background: #2a2a4a;
+            border-color: #3a3a5a;
+            color: #e0e0e0;
+        }
+        body.dark-theme .settings-form h4 {
+            color: #b0b0b0;
+        }
+        body.dark-theme .help-shortcuts h4 {
+            color: #b0b0b0;
+        }
+        body.dark-theme kbd {
+            background: #2a2a4a;
+            border-color: #3a3a5a;
+            color: #e0e0e0;
+        }
+        body.dark-theme .shortcut {
+            color: #888;
+        }
+
+        /* Autocomplete */
+        .autocomplete-suggestions {
+            position: absolute;
+            bottom: 100%;
+            left: 0;
+            right: 80px;
+            background: #fff;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            max-height: 200px;
+            overflow-y: auto;
+            z-index: 100;
+            box-shadow: 0 -2px 10px rgba(0,0,0,0.1);
+        }
+        body.dark-theme .autocomplete-suggestions {
+            background: #2a2a4a;
+            border-color: #3a3a5a;
+        }
+        .autocomplete-item {
+            padding: 8px 12px;
+            cursor: pointer;
+            font-size: 13px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .autocomplete-item:hover,
+        .autocomplete-item.selected {
+            background: #e8f5e9;
+        }
+        body.dark-theme .autocomplete-item:hover,
+        body.dark-theme .autocomplete-item.selected {
+            background: #0f3460;
+        }
+        .autocomplete-item-name {
+            font-family: 'Courier New', monospace;
+            color: #009a61;
+            font-weight: 600;
+        }
+        body.dark-theme .autocomplete-item-name {
+            color: #00ff88;
+        }
+        .autocomplete-item-desc {
+            color: #999;
+            font-size: 11px;
+            max-width: 200px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        body.dark-theme .autocomplete-item-desc {
+            color: #666;
+        }
+
+        /* Re-login prompt */
+        .relogin-prompt {
+            padding: 16px;
+            background: #fff3e0;
+            border: 1px solid #ffcc80;
+            border-radius: 8px;
+            text-align: center;
+            margin: 10px 0;
+        }
+        body.dark-theme .relogin-prompt {
+            background: #3a2a1a;
+            border-color: #6a4a2a;
+        }
+        .relogin-prompt p {
+            color: #e65100;
+            font-size: 13px;
+            margin-bottom: 10px;
+        }
+        body.dark-theme .relogin-prompt p {
+            color: #ff9800;
+        }
+        .relogin-prompt button {
+            padding: 8px 20px;
+            background: #009a61;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+        }
+        .relogin-prompt button:hover {
+            background: #007a4d;
+        }
+    </style>
+</head>
+<body>
+    <!-- Login Screen -->
+    <div id="loginScreen" class="login-container">
+        <div class="login-box">
+            <div class="login-header">
+                <h2>DocSys AI</h2>
+                <p>智能文档管理系统</p>
+            </div>
+            <form id="loginForm">
+                <div class="form-group">
+                    <label>用户名</label>
+                    <input type="text" id="username" placeholder="请输入用户名" value="admin">
+                </div>
+                <div class="form-group">
+                    <label>密码</label>
+                    <input type="password" id="password" placeholder="请输入密码" value="admin2026">
+                </div>
+                <button type="submit" class="login-btn" id="loginBtn">OK</button>
+            </form>
+        </div>
+    </div>
+    
+    <!-- Main App -->
+    <div id="appContainer" class="app-container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <h3>MXSDOC AI智能体</h3>
+            </div>
+            <div class="sidebar-content">
+                <!-- Soul Evolution Status -->
+                <div class="soul-panel" id="soulPanel">
+                    <div class="soul-panel-header">
+                        <span class="soul-title">Soul 进化</span>
+                        <span class="soul-level" id="soulLevelBadge">Lv.1</span>
+                    </div>
+                    <div class="soul-status">
+                        <div class="health-dot healthy" id="healthDot"></div>
+                        <span class="health-text" id="healthText">系统健康</span>
+                    </div>
+                    <div class="soul-stats">
+                        <div class="soul-stat">
+                            <div class="soul-stat-label">模式</div>
+                            <div class="soul-stat-value" id="sidebarPatterns">0</div>
+                        </div>
+                        <div class="soul-stat">
+                            <div class="soul-stat-label">成功率</div>
+                            <div class="soul-stat-value" id="sidebarSuccessRate">--</div>
+                        </div>
+                    </div>
+                    <div class="soul-progress">
+                        <div class="soul-progress-label">
+                            <span>学习进度</span>
+                            <span id="sidebarProgress">0%</span>
+                        </div>
+                        <div class="soul-progress-bar">
+                            <div class="soul-progress-fill" id="sidebarProgressFill" style="width: 0%"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="section-header" style="margin-top: 16px;">
+                    <span>会话</span>
+                    <button class="section-btn" id="newSessionBtn">+</button>
+                </div>
+                <div class="session-list" id="sessionList">
+                </div>
+            </div>
+            <div class="sidebar-footer">
+                <button class="sidebar-btn" id="helpBtn">帮助 ?</button>
+                <button class="sidebar-btn" id="skillsBtn">技能市场</button>
+                <button class="sidebar-btn" id="settingsBtn">设置</button>
+            </div>
+        </aside>
+        
+        <!-- Main Content -->
+        <main class="main-content">
+            <div class="chat-container">
+                <div class="messages-area" id="messagesArea">
+                    <div class="empty-state" id="emptyState">
+                        <h3>开始新对话</h3>
+                        <p>发送消息开始与 AI 助手交流</p>
+                        <div class="quick-commands">
+                            <span class="quick-tag" data-cmd="list repos">列出仓库</span>
+                            <span class="quick-tag" data-cmd="whoami">查看用户</span>
+                            <span class="quick-tag" data-cmd="help">帮助</span>
+                        </div>
+                    </div>
+                    <div id="messagesList"></div>
+                </div>
+                
+                <div class="input-area">
+                    <div class="input-container" style="position: relative;">
+                        <div class="autocomplete-suggestions" id="autocompleteSuggestions" style="display: none;"></div>
+                        <textarea id="messageInput" placeholder="输入消息、命令或问题... (Enter 发送, Shift+Enter 换行, ↑↓ 历史, Tab 补全)" rows="1" maxlength="4000"></textarea>
+                        <div class="upload-buttons">
+                            <button class="upload-btn" id="uploadFileBtn" title="上传文件（可多选）">📎</button>
+                            <button class="upload-btn" id="uploadFolderBtn" title="上传文件夹">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+                            </button>
+                        </div>
+                        <button class="send-btn" id="sendBtn" title="发送 (Enter)">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+                        </button>
+                        <button class="send-btn" id="stopBtn" style="display:none; background:linear-gradient(135deg, #d32f2f 0%, #f44336 100%);" title="停止 (Esc)">
+                            <svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"></rect></svg>
+                        </button>
+                    </div>
+                    <div class="input-bottom-bar">
+                        <div class="input-shortcuts">
+                            <span class="input-shortcut"><kbd>Enter</kbd> 发送</span>
+                            <span class="input-shortcut"><kbd>Shift</kbd>+<kbd>Enter</kbd> 换行</span>
+                            <span class="input-shortcut"><kbd>↑</kbd>/<kbd>↓</kbd> 历史</span>
+                            <span class="input-shortcut"><kbd>Tab</kbd> 补全</span>
+                        </div>
+                        <span class="char-counter" id="charCounter">0 / 4000</span>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Toast Container -->
+    <div class="toast-container" id="toastContainer"></div>
+    
+    <!-- Skills Dialog -->
+    <div class="dialog-overlay" id="skillsDialog">
+        <div class="dialog" style="max-width: 600px;">
+            <div class="dialog-header">
+                <span class="dialog-title">技能市场 & 进化状态</span>
+                <button class="dialog-close" data-close>&times;</button>
+            </div>
+            <div class="dialog-body">
+                <!-- Soul Evolution Panel -->
+                <div class="soul-panel" style="margin-bottom: 16px;">
+                    <div class="soul-panel-header">
+                        <span class="soul-title">Soul 自主进化系统</span>
+                        <span class="soul-level" id="soulLevelDialog">Lv.1</span>
+                    </div>
+                    <div class="soul-status">
+                        <div class="health-dot healthy" id="healthDotDialog"></div>
+                        <span class="health-text" id="healthTextDialog">系统健康</span>
+                    </div>
+                    <div class="soul-stats">
+                        <div class="soul-stat">
+                            <div class="soul-stat-label">意图模式</div>
+                            <div class="soul-stat-value" id="dialogPatterns">0</div>
+                        </div>
+                        <div class="soul-stat">
+                            <div class="soul-stat-label">成功率</div>
+                            <div class="soul-stat-value" id="dialogSuccessRate">--</div>
+                        </div>
+                        <div class="soul-stat">
+                            <div class="soul-stat-label">健康评分</div>
+                            <div class="soul-stat-value" id="dialogHealthScore">--</div>
+                        </div>
+                        <div class="soul-stat">
+                            <div class="soul-stat-label">总执行</div>
+                            <div class="soul-stat-value" id="dialogTotalExec">0</div>
+                        </div>
+                    </div>
+                    <div class="soul-progress">
+                        <div class="soul-progress-label">
+                            <span>进化进度</span>
+                            <span id="dialogEvolutionPercent">0%</span>
+                        </div>
+                        <div class="soul-progress-bar">
+                            <div class="soul-progress-fill" id="dialogEvolutionFill" style="width: 0%"></div>
+                        </div>
+                    </div>
+                </div>
+                <h4 style="margin-bottom: 12px; color: #555; font-size: 14px;">技能列表</h4>
+                <div class="skills-grid" id="skillsGrid">
+                </div>
+
+                <!-- Skill Upload Area -->
+                <div style="margin-top: 20px; padding-top: 16px; border-top: 1px solid #eee;">
+                    <h4 style="margin-bottom: 10px; color: #555; font-size: 14px;">安装新技能 (agentskills.io 规范)</h4>
+                    <div id="skillUploadZone"
+                         style="border: 2px dashed #ccc; border-radius: 8px; padding: 24px; text-align: center; cursor: pointer; transition: all 0.2s; background: #fafafa;"
+                         ondragover="event.preventDefault(); this.style.borderColor='#009a61'; this.style.background='#f0f9f4';"
+                         ondragleave="this.style.borderColor='#ccc'; this.style.background='#fafafa';"
+                         ondrop="event.preventDefault(); this.style.borderColor='#ccc'; this.style.background='#fafafa'; handleSkillDrop(event);"
+                         onclick="document.getElementById('skillFileInput').click()">
+                        <div style="font-size: 28px; margin-bottom: 8px;">📦</div>
+                        <div style="color: #555; font-size: 14px;">拖放 .zip 技能包或 .md 技能文件到这里</div>
+                        <div style="color: #999; font-size: 12px; margin-top: 4px;">或点击选择文件 · 支持 agentskills.io 规范</div>
+                    </div>
+                    <input type="file" id="skillFileInput" accept=".zip,.md,.yaml,.json" style="display:none"
+                           onchange="handleSkillFileSelect(this.files[0])">
+                    <div id="skillUploadStatus" style="margin-top: 10px; font-size: 13px; display: none;"></div>
+                    <div id="skillValidateResult" style="margin-top: 10px; font-size: 12px;"></div>
+                    <div style="margin-top: 8px; display: flex; gap: 8px;">
+                        <button id="skillValidateBtn" class="btn-small" style="display:none" onclick="validateSkillFile()">验证规范</button>
+                        <button id="skillUploadBtn" class="btn-small btn-primary" style="display:none" onclick="installSkillFile()">安装技能</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Settings Dialog -->
+    <div class="dialog-overlay" id="settingsDialog">
+        <div class="dialog">
+            <div class="dialog-header">
+                <span class="dialog-title">设置</span>
+                <button class="dialog-close" data-close>&times;</button>
+            </div>
+            <div class="dialog-body">
+                <div class="settings-form">
+                    <div class="form-row">
+                        <label>主题</label>
+                        <select id="themeSelect">
+                            <option value="dark">深色</option>
+                            <option value="light">浅色</option>
+                        </select>
+                    </div>
+                    <div class="form-row">
+                        <label>LLM 模型</label>
+                        <input type="text" id="llmModel" value="qwen2.5:7b">
+                    </div>
+                    <div class="form-row">
+                        <label>API Endpoint</label>
+                        <input type="text" id="llmEndpoint" value="http://localhost:11434">
+                    </div>
+                    <div class="form-row">
+                        <label>API Key (可选)</label>
+                        <input type="password" id="llmApiKey" placeholder="sk-...">
+                    </div>
+                    <hr style="border: none; border-top: 1px solid #eee; margin: 12px 0;">
+                    <h4 style="margin-bottom: 12px; color: #555; font-size: 13px;">Soul 进化控制</h4>
+                    <div class="form-row">
+                        <label>自动学习</label>
+                        <select id="autoLearn">
+                            <option value="true">开启</option>
+                            <option value="false">关闭</option>
+                        </select>
+                    </div>
+                    <div class="form-row">
+                        <label>健康检测间隔</label>
+                        <select id="healthCheckInterval">
+                            <option value="30">30秒</option>
+                            <option value="60">1分钟</option>
+                            <option value="300">5分钟</option>
+                        </select>
+                    </div>
+                    <div class="form-row" style="flex-direction: row; align-items: center; gap: 10px;">
+                        <button class="btn btn-secondary" id="clearAlertsBtn" style="flex: 1;">清除告警</button>
+                        <button class="btn btn-secondary" id="viewPerformanceBtn" style="flex: 1;">查看性能报告</button>
+                    </div>
+                </div>
+            </div>
+            <div class="dialog-footer">
+                <button class="btn btn-secondary" data-close>取消</button>
+                <button class="btn btn-primary" id="saveSettingsBtn">保存</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Help Dialog -->
+    <div class="dialog-overlay" id="helpDialog">
+        <div class="dialog" style="max-width: 650px;">
+            <div class="dialog-header">
+                <span class="dialog-title">命令帮助</span>
+                <button class="dialog-close" data-close>&times;</button>
+            </div>
+            <div class="dialog-body">
+                <div class="help-search">
+                    <input type="text" id="helpSearch" placeholder="搜索命令..." style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px;">
+                </div>
+                <div class="help-sections" id="helpSections">
+                    <!-- Dynamic content -->
+                </div>
+                <div class="help-shortcuts">
+                    <h4 style="margin: 16px 0 8px; color: #555; font-size: 13px;">键盘快捷键</h4>
+                    <div class="shortcut-grid">
+                        <div class="shortcut"><kbd>Enter</kbd> 发送消息</div>
+                        <div class="shortcut"><kbd>Shift+Enter</kbd> 换行</div>
+                        <div class="shortcut"><kbd>Ctrl+L</kbd> 清空对话</div>
+                        <div class="shortcut"><kbd>Ctrl+H</kbd> 帮助</div>
+                        <div class="shortcut"><kbd>Esc</kbd> 关闭弹窗</div>
+                        <div class="shortcut"><kbd>↑↓</kbd> 命令历史</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    // ==================== State ====================
+    const state = {
+        isLoggedIn: false,
+        sessionId: null,
+        username: '',
+        sessions: [],
+        currentSession: null,
+        messages: [],
+        skills: [
+            { name: '文档管理', icon: 'D', description: '创建、编辑、删除文档', active: true },
+            { name: '版本控制', icon: 'V', description: 'Git/SVN 版本管理', active: true },
+            { name: '全文搜索', icon: 'S', description: '强大的全文搜索能力', active: true },
+            { name: 'AI 助手', icon: 'A', description: '智能问答与文档分析', active: true }
+        ],
+        allSkills: [],       // All available skills from API for autocomplete
+        pendingUploads: [],   // Files waiting for repo creation
+        pendingRepoFiles: {}, // { repoName: [files] }
+        settings: {
+            theme: 'light',
+            llmModel: 'qwen2.5:7b',
+            llmEndpoint: 'http://localhost:11434',
+            llmApiKey: '',
+            autoLearn: true,
+            healthCheckInterval: 60
+        },
+        isLoading: false,
+        isGenerating: false,      // AI is generating response
+        pendingMessages: [],      // Queued messages during generation
+        abortController: null,    // AbortController for cancellation
+        autocompleteIndex: -1
+    };
+
+    // Load settings from localStorage
+    (function loadSettings() {
+        try {
+            var saved = localStorage.getItem('docsys_settings');
+            if (saved) {
+                var parsed = JSON.parse(saved);
+                for (var key in parsed) {
+                    if (state.settings.hasOwnProperty(key)) {
+                        state.settings[key] = parsed[key];
+                    }
+                }
+            }
+        } catch (e) { /* ignore */ }
+
+        // Apply theme immediately
+        if (state.settings.theme === 'dark') {
+            document.body.classList.add('dark-theme');
+        }
+
+        // Populate settings form
+        setTimeout(function() {
+            var themeSel = document.getElementById('themeSelect');
+            if (themeSel) themeSel.value = state.settings.theme;
+            var llmModel = document.getElementById('llmModel');
+            if (llmModel) llmModel.value = state.settings.llmModel || 'qwen2.5:7b';
+            var llmEndpoint = document.getElementById('llmEndpoint');
+            if (llmEndpoint) llmEndpoint.value = state.settings.llmEndpoint || 'http://localhost:11434';
+            var llmApiKey = document.getElementById('llmApiKey');
+            if (llmApiKey) llmApiKey.value = state.settings.llmApiKey || '';
+            var autoLearn = document.getElementById('autoLearn');
+            if (autoLearn) autoLearn.value = state.settings.autoLearn ? 'true' : 'false';
+            var healthInterval = document.getElementById('healthCheckInterval');
+            if (healthInterval) healthInterval.value = String(state.settings.healthCheckInterval || 60);
+        }, 100);
+    })();
+
+    // ==================== API ====================
+    // API_BASE: merged into DocSys under context path /DocSystem, backend mapped at /agent.
+    const API_BASE = '/DocSystem/agent';
+
+    // 合并进 DocSystem 后前端不做登录拦截/跳转。未登录时仅提示用户去 DocSystem 登录。
+    function redirectToDocSysLogin() {
+        showMessage('您尚未登录 DocSystem，请先登录后再使用（可在 DocSystem 主站登录）', 'error');
+    }
+
+    // 后端返回 NOT_LOGGED_IN 时：不跳转，作为普通错误在界面提示。
+    // 仍返回 true 以让调用处停止后续处理（控制流不变），只是不再跳转登录页。
+    function handleAuthError(message) {
+        if (message && String(message).indexOf('NOT_LOGGED_IN') !== -1) {
+            showMessage('您尚未登录 DocSystem，请先登录后再操作', 'error');
+            return true;
+        }
+        return false;
+    }
+
+    const API = {
+        async execute(command, sessionId) {
+            // 使用 JSON body 传递参数（无长度限制，支持中文和特殊字符）
+            const res = await fetch(API_BASE + '/execute', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ command, sessionId: sessionId || null })
+            });
+            return res.json();
+        },
+        
+        async getSession(sessionId) {
+            const res = await fetch(API_BASE + '/session?sessionId=' + sessionId);
+            return res.json();
+        },
+
+        // ==================== Evolution API ====================
+        async getEvolutionStats() {
+            try {
+                const res = await fetch(API_BASE + '/api/evolution/stats');
+                if (res.ok) return await res.json();
+            } catch (e) { console.warn('Evolution stats unavailable:', e); }
+            return null;
+        },
+
+        async getEvolutionHealth() {
+            try {
+                const res = await fetch(API_BASE + '/api/evolution/health');
+                if (res.ok) return await res.json();
+            } catch (e) { console.warn('Evolution health unavailable:', e); }
+            return null;
+        },
+
+        async getEvolutionPerformance() {
+            try {
+                const res = await fetch(API_BASE + '/api/evolution/performance');
+                if (res.ok) return await res.json();
+            } catch (e) { console.warn('Evolution performance unavailable:', e); }
+            return null;
+        },
+
+        async clearAlerts() {
+            try {
+                const res = await fetch(API_BASE + '/api/evolution/alerts/clear', { method: 'POST' });
+                return res.ok;
+            } catch (e) { console.warn('Clear alerts failed:', e); }
+            return false;
+        }
+    };
+
+    // ==================== Soul Evolution Panel ====================
+    function updateSoulPanel(data) {
+        if (!data) return;
+
+        // Update sidebar
+        updateSidebarSoul(data);
+        updateDialogSoul(data);
+    }
+
+    function updateSidebarSoul(data) {
+        // Patterns count
+        var patterns = data.experience?.intentPatterns || 0;
+        var el = document.getElementById('sidebarPatterns');
+        if (el) el.textContent = patterns;
+
+        // Success rate
+        var successRate = data.experience?.recentSuccessRate;
+        var el2 = document.getElementById('sidebarSuccessRate');
+        if (el2) el2.textContent = successRate ? (successRate * 100).toFixed(0) + '%' : '--';
+
+        // Health status
+        var health = data.diagnostics?.health || 'healthy';
+        var dot = document.getElementById('healthDot');
+        var text = document.getElementById('healthText');
+        if (dot) {
+            dot.className = 'health-dot ' + health;
+        }
+        if (text) {
+            var statusText = { healthy: '系统健康', degraded: '性能下降', unhealthy: '需要关注' };
+            text.textContent = statusText[health] || '系统健康';
+        }
+
+        // Evolution level (based on patterns count)
+        var level = Math.min(10, Math.floor(patterns / 3) + 1);
+        var levelEl = document.getElementById('soulLevelBadge');
+        if (levelEl) levelEl.textContent = 'Lv.' + level;
+
+        // Progress bar
+        var progress = Math.min(100, patterns * 5);
+        var fill = document.getElementById('sidebarProgressFill');
+        var percent = document.getElementById('sidebarProgress');
+        if (fill) fill.style.width = progress + '%';
+        if (percent) percent.textContent = progress + '%';
+    }
+
+    function updateDialogSoul(data) {
+        // Patterns
+        var patterns = data.experience?.intentPatterns || 0;
+        var el = document.getElementById('dialogPatterns');
+        if (el) el.textContent = patterns;
+
+        // Success rate
+        var successRate = data.experience?.recentSuccessRate;
+        var el2 = document.getElementById('dialogSuccessRate');
+        if (el2) el2.textContent = successRate ? (successRate * 100).toFixed(1) + '%' : '--';
+
+        // Health score
+        var healthScore = data.diagnostics?.healthScore;
+        var el3 = document.getElementById('dialogHealthScore');
+        if (el3) el3.textContent = healthScore ? (healthScore * 100).toFixed(0) + '%' : '--';
+
+        // Total executions
+        var total = data.experience?.totalExecutions || 0;
+        var el4 = document.getElementById('dialogTotalExec');
+        if (el4) el4.textContent = total;
+
+        // Health status
+        var health = data.diagnostics?.health || 'healthy';
+        var dot = document.getElementById('healthDotDialog');
+        var text = document.getElementById('healthTextDialog');
+        if (dot) {
+            dot.className = 'health-dot ' + health;
+        }
+        if (text) {
+            var statusText = { healthy: '系统健康', degraded: '性能下降', unhealthy: '需要关注' };
+            text.textContent = statusText[health] || '系统健康';
+        }
+
+        // Evolution level
+        var level = Math.min(10, Math.floor(patterns / 3) + 1);
+        var levelEl = document.getElementById('soulLevelDialog');
+        if (levelEl) levelEl.textContent = 'Lv.' + level;
+
+        // Progress
+        var progress = Math.min(100, patterns * 5);
+        var fill = document.getElementById('dialogEvolutionFill');
+        var percent = document.getElementById('dialogEvolutionPercent');
+        if (fill) fill.style.width = progress + '%';
+        if (percent) percent.textContent = progress + '%';
+    }
+
+    async function refreshSoulData() {
+        try {
+            var stats = await API.getEvolutionStats();
+            if (stats) {
+                updateSoulPanel(stats);
+            }
+        } catch (e) {
+            console.warn('Failed to refresh soul data:', e);
+        }
+    }
+
+    // ==================== Skill Marketplace ====================
+    var pendingSkillFile = null;
+
+    function handleSkillDrop(event) {
+        var files = event.dataTransfer.files;
+        if (files && files.length > 0) {
+            handleSkillFileSelect(files[0]);
+        }
+    }
+
+    function handleSkillFileSelect(file) {
+        if (!file) return;
+        pendingSkillFile = file;
+        var zone = document.getElementById('skillUploadZone');
+        var status = document.getElementById('skillUploadStatus');
+        var validateBtn = document.getElementById('skillValidateBtn');
+        var uploadBtn = document.getElementById('skillUploadBtn');
+        var validateResult = document.getElementById('skillValidateResult');
+
+        zone.innerHTML = '<div style="font-size:22px;margin-bottom:6px;">📄</div>' +
+            '<div style="color:#333;font-size:13px;font-weight:500;">' + file.name + '</div>' +
+            '<div style="color:#888;font-size:11px;margin-top:2px;">' +
+            (file.size < 1024 ? file.size + ' B' : (file.size/1024).toFixed(1) + ' KB') +
+            '</div>';
+        status.style.display = 'none';
+        validateResult.innerHTML = '';
+        validateBtn.style.display = 'inline-block';
+        uploadBtn.style.display = 'none';
+    }
+
+    function showSkillUploadStatus(msg, type) {
+        var el = document.getElementById('skillUploadStatus');
+        if (!el) return;
+        el.style.display = 'block';
+        el.style.color = type === 'error' ? '#e53935' : type === 'success' ? '#009a61' : '#555';
+        el.textContent = msg;
+    }
+
+    async function validateSkillFile() {
+        if (!pendingSkillFile) return;
+        var btn = document.getElementById('skillValidateBtn');
+        btn.disabled = true;
+        btn.textContent = '验证中...';
+        showSkillUploadStatus('正在验证...', 'info');
+
+        var formData = new FormData();
+        formData.append('file', pendingSkillFile);
+
+        try {
+            var res = await fetch(API_BASE + '/skills/validate', { method: 'POST', body: formData });
+            var json = await res.json();
+            var resultEl = document.getElementById('skillValidateResult');
+            var uploadBtn = document.getElementById('skillUploadBtn');
+
+            if (json.success) {
+                var info = json.data.info || {};
+                var warnings = json.data.warnings || [];
+                var valid = json.data.valid;
+
+                var html = '<div style="padding:10px;border-radius:6px;background:' +
+                    (valid ? '#e8f5e9' : '#ffebee') + ';border:1px solid ' +
+                    (valid ? '#c8e6c9' : '#ffcdd2') + ';">' +
+                    '<div style="font-weight:600;color:' + (valid ? '#2e7d32' : '#c62828') + ';">' +
+                    (valid ? '✓ 验证通过' : '✗ 验证失败') + '</div>';
+
+                if (info.fileName) html += '<div style="font-size:11px;color:#666;margin-top:4px;">文件名: ' + info.fileName + '</div>';
+                if (warnings.length) {
+                    html += '<div style="font-size:11px;color:#f57c00;margin-top:4px;">建议: ' + warnings.join(', ') + '</div>';
+                }
+                html += '</div>';
+                resultEl.innerHTML = html;
+                uploadBtn.style.display = valid ? 'inline-block' : 'none';
+            } else {
+                resultEl.innerHTML = '<div style="padding:8px;color:#c62828;font-size:12px;">验证出错: ' + json.message + '</div>';
+                uploadBtn.style.display = 'none';
+            }
+        } catch (e) {
+            showSkillUploadStatus('验证失败: ' + e.message, 'error');
+        }
+        btn.disabled = false;
+        btn.textContent = '验证规范';
+    }
+
+    async function installSkillFile() {
+        if (!pendingSkillFile) return;
+        var btn = document.getElementById('skillUploadBtn');
+        var validateBtn = document.getElementById('skillValidateBtn');
+        btn.disabled = true;
+        btn.textContent = '安装中...';
+        validateBtn.style.display = 'none';
+        showSkillUploadStatus('正在安装...', 'info');
+
+        var formData = new FormData();
+        formData.append('file', pendingSkillFile);
+
+        try {
+            var res = await fetch(API_BASE + '/skills/upload', { method: 'POST', body: formData });
+            var json = await res.json();
+
+            if (json.success) {
+                showSkillUploadStatus('✓ 技能 "' + (json.data.skill ? json.data.skill.name : pendingSkillFile.name) + '" 安装成功！', 'success');
+                btn.style.display = 'none';
+                // Reload skills in the dialog
+                await loadSkillsIntoDialog();
+                // Refresh the global skills
+                if (typeof refreshSkillsGrid === 'function') refreshSkillsGrid();
+            } else {
+                showSkillUploadStatus('✗ 安装失败: ' + json.message, 'error');
+                btn.style.display = 'none';
+                validateBtn.style.display = 'inline-block';
+            }
+        } catch (e) {
+            showSkillUploadStatus('✗ 安装失败: ' + e.message, 'error');
+            btn.style.display = 'none';
+            validateBtn.style.display = 'inline-block';
+        }
+        btn.disabled = false;
+        btn.textContent = '安装技能';
+    }
+
+    async function loadSkillsIntoDialog() {
+        var grid = document.getElementById('skillsGrid');
+        if (!grid) return;
+        try {
+            var res = await fetch(API_BASE + '/skills');
+            var json = await res.json();
+            if (!json.success) return;
+
+            var skills = json.data.skills || [];
+            var categories = {};
+
+            skills.forEach(function(s) {
+                var cat = s.category || 'general';
+                if (!categories[cat]) categories[cat] = [];
+                categories[cat].push(s);
+            });
+
+            var html = '';
+            Object.keys(categories).sort().forEach(function(cat) {
+                html += '<div style="margin-bottom:14px;">';
+                html += '<div style="font-size:11px;color:#999;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">' + cat + '</div>';
+                categories[cat].forEach(function(s) {
+                    html += '<div class="skill-card" data-skill="' + s.id + '">';
+                    html += '<div class="skill-icon">' + (s.name.charAt(0).toUpperCase()) + '</div>';
+                    html += '<div class="skill-info">';
+                    html += '<h4>' + s.name + '</h4>';
+                    html += '<p>' + (s.description || s.id) + '</p>';
+                    html += '</div>';
+                    html += '<div style="display:flex;gap:6px;align-items:center;">';
+                    html += '<label class="switch" title="启用/禁用">';
+                    html += '<input type="checkbox" checked onchange="toggleSkill(\'' + s.id + '\', this.checked)">';
+                    html += '<span class="slider"></span></label>';
+                    html += '</div></div>';
+                });
+                html += '</div>';
+            });
+            grid.innerHTML = html || '<div style="color:#999;text-align:center;padding:20px;">暂无技能</div>';
+        } catch (e) {
+            grid.innerHTML = '<div style="color:#e53935;font-size:12px;">加载失败: ' + e.message + '</div>';
+        }
+    }
+
+    async function toggleSkill(skillId, enabled) {
+        try {
+            await fetch(API_BASE + '/skills/toggle', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ skillId: skillId, enabled: enabled })
+            });
+        } catch (e) {
+            console.warn('Toggle skill failed:', e);
+        }
+    }
+
+    // ==================== Help Dialog ====================
+    var commandHistory = [];
+    var historyIndex = -1;
+
+    function navigateHistory(direction) {
+        if (commandHistory.length === 0) return;
+
+        historyIndex = Math.max(-1, Math.min(commandHistory.length - 1, historyIndex + direction));
+        document.getElementById('messageInput').value = historyIndex >= 0 ? commandHistory[historyIndex] : '';
+    }
+
+    async function showHelpDialog() {
+        var sections = document.getElementById('helpSections');
+
+        try {
+            var res = await fetch(API_BASE + '/skills');
+            var data = await res.json();
+
+            if (data.success && data.data) {
+                // Cache skills for autocomplete
+                state.allSkills = data.data.skills || [];
+                renderHelpCommands('', data.data.grouped || {});
+            } else {
+                renderDefaultHelp();
+            }
+        } catch (e) {
+            console.warn('Failed to load skills:', e);
+            renderDefaultHelp();
+        }
+    }
+
+    function renderHelpCommands(filter, grouped) {
+        var sections = document.getElementById('helpSections');
+        var filterLower = (filter || '').toLowerCase();
+
+        // Category display names
+        var categoryNames = {
+            'repository': '仓库管理',
+            'document': '文档操作',
+            'search': '搜索功能',
+            'ai': 'AI 对话',
+            'user': '用户信息',
+            'system': '系统命令',
+            'general': '通用命令',
+            'web': '网络自动化'
+        };
+
+        var html = '';
+
+        // If we have grouped data from API
+        if (grouped && Object.keys(grouped).length > 0) {
+            for (var cat in grouped) {
+                var commands = grouped[cat];
+                var filtered = commands.filter(function(c) {
+                    return !filterLower ||
+                           c.name.toLowerCase().includes(filterLower) ||
+                           c.description.toLowerCase().includes(filterLower) ||
+                           c.id.toLowerCase().includes(filterLower);
+                });
+
+                if (filtered.length === 0) continue;
+
+                html += '<div class="help-section">';
+                html += '<div class="help-section-title">' + (categoryNames[cat] || cat) + '</div>';
+                html += '<div class="help-commands">';
+
+                for (var i = 0; i < filtered.length; i++) {
+                    var cmd = filtered[i];
+                    html += '<div class="help-cmd">';
+                    html += '<span class="help-cmd-name">' + escapeHtml(cmd.name) + '</span>';
+                    html += '<span class="help-cmd-desc">' + escapeHtml(cmd.description) + '</span>';
+                    html += '</div>';
+                }
+
+                html += '</div></div>';
+            }
+        } else {
+            renderDefaultHelp();
+            return;
+        }
+
+        sections.innerHTML = html;
+    }
+
+    function renderDefaultHelp() {
+        var sections = document.getElementById('helpSections');
+        var html = '';
+
+        // Basic commands
+        html += '<div class="help-section">';
+        html += '<div class="help-section-title">基础命令</div>';
+        html += '<div class="help-commands">';
+        html += '<div class="help-cmd"><span class="help-cmd-name">help</span><span class="help-cmd-desc">显示帮助信息</span></div>';
+        html += '<div class="help-cmd"><span class="help-cmd-name">whoami</span><span class="help-cmd-desc">显示当前用户信息</span></div>';
+        html += '</div></div>';
+
+        // Repository commands
+        html += '<div class="help-section">';
+        html += '<div class="help-section-title">仓库管理</div>';
+        html += '<div class="help-commands">';
+        html += '<div class="help-cmd"><span class="help-cmd-name">list repos</span><span class="help-cmd-desc">列出所有仓库</span></div>';
+        html += '<div class="help-cmd"><span class="help-cmd-name">create repo &lt;name&gt;</span><span class="help-cmd-desc">创建新仓库</span></div>';
+        html += '<div class="help-cmd"><span class="help-cmd-name">delete repo &lt;name&gt;</span><span class="help-cmd-desc">删除仓库</span></div>';
+        html += '</div></div>';
+
+        // Document commands
+        html += '<div class="help-section">';
+        html += '<div class="help-section-title">文档操作</div>';
+        html += '<div class="help-commands">';
+        html += '<div class="help-cmd"><span class="help-cmd-name">list docs [vid]</span><span class="help-cmd-desc">列出文档</span></div>';
+        html += '<div class="help-cmd"><span class="help-cmd-name">upload</span><span class="help-cmd-desc">上传文档</span></div>';
+        html += '<div class="help-cmd"><span class="help-cmd-name">search &lt;keyword&gt;</span><span class="help-cmd-desc">搜索文档</span></div>';
+        html += '</div></div>';
+
+        // AI commands
+        html += '<div class="help-section">';
+        html += '<div class="help-section-title">AI 对话</div>';
+        html += '<div class="help-commands">';
+        html += '<div class="help-cmd"><span class="help-cmd-name">chat &lt;message&gt;</span><span class="help-cmd-desc">与 AI 对话</span></div>';
+        html += '<div class="help-cmd"><span class="help-cmd-name">关于 &lt;topic&gt;</span><span class="help-cmd-desc">询问关于某主题</span></div>';
+        html += '</div></div>';
+
+        sections.innerHTML = html;
+    }
+
+    // ==================== UI ====================
+    function showMessage(msg, type) {
+        const container = document.getElementById('toastContainer');
+        const div = document.createElement('div');
+        div.className = 'toast ' + type;
+        div.textContent = msg;
+        container.appendChild(div);
+
+        setTimeout(function() {
+            div.style.animation = 'slideOut 0.3s ease forwards';
+            setTimeout(function() { div.remove(); }, 300);
+        }, 3000);
+    }
+
+    function formatTime() {
+        return new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+    }
+
+    function escapeHtml(text) {
+        var div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    // Initialize Mermaid
+    if (typeof mermaid !== 'undefined') {
+        mermaid.initialize({
+            startOnLoad: false,
+            theme: 'default',
+            securityLevel: 'loose',
+            fontFamily: 'Verdana, sans-serif'
+        });
+    }
+
+    /**
+     * Smart content renderer for AI responses.
+     * Detects content type and renders appropriately:
+     * 1. Mermaid diagram (```mermaid blocks)
+     * 2. JSON (pretty-printed with syntax highlighting)
+     * 3. Markdown (rendered HTML)
+     * 4. SVG (inline SVG)
+     * 5. HTML (sanitized and rendered)
+     * 6. Plain text (escaped, newlines → <br>)
+     *
+     * @param {string} content - Raw content from AI
+     * @param {string} role - 'assistant' | 'user' | 'system'
+     * @returns {string} HTML string safe to use in innerHTML
+     */
+    function renderContent(content, role) {
+        if (!content) return '';
+
+        // For non-assistant roles: always escape (security)
+        if (role !== 'assistant') {
+            return escapeHtml(content).replace(/\n/g, '<br>');
+        }
+
+        // ---------- 0. SVG code block detection (```svg ... ```) ----------
+        var svgCodeRe = /```svg\s*([\s\S]*?)```/gi;
+        if (svgCodeRe.test(content)) {
+            content = content.replace(/```svg\s*([\s\S]*?)```/gi, function(match, svgCode) {
+                var trimmedSvg = svgCode.trim();
+                // Validate it looks like SVG
+                if (trimmedSvg.startsWith('<svg') || trimmedSvg.startsWith('<!DOCTYPE svg') || /<svg[\s>]/i.test(trimmedSvg)) {
+                    return '<div class="mermaid-render">' + trimmedSvg + '</div>';
+                }
+                // Not valid SVG, return as escaped code
+                return '<pre class="ai-code-block"><code>' + escapeHtml(svgCode) + '</code></pre>';
+            });
+            return content;
+        }
+
+        // ---------- 1. Mermaid diagram detection ----------
+        var mermaidRe = /```mermaid\s*([\s\S]*?)```/gi;
+        if (mermaidRe.test(content)) {
+            var div = document.createElement('div');
+            div.innerHTML = escapeHtml(content)
+                .replace(/\n/g, '<br>')
+                .replace(/&lt;code&gt;/g, '<code>')
+                .replace(/&lt;\/code&gt;/g, '</code>');
+            var self = this;
+            content = content.replace(/```mermaid\s*([\s\S]*?)```/gi, function(match, code) {
+                var id = 'mermaid-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+                var containerId = 'mermaid-container-' + id;
+                setTimeout(function() {
+                    var container = document.getElementById(containerId);
+                    if (container && typeof mermaid !== 'undefined') {
+                        var renderResult = mermaid.render(id, code.trim());
+                        // Mermaid 10 returns a Promise resolving to {svg: string}
+                        var svgPromise = (typeof renderResult === 'object' && renderResult !== null && 'then' in renderResult)
+                            ? renderResult
+                            : Promise.resolve(renderResult);
+                        svgPromise.then(function(svg) {
+                            // Mermaid 10: result is {svg: string}; older: string
+                            container.innerHTML = (svg && typeof svg === 'object' && svg.svg) ? svg.svg : svg;
+                        }).catch(function(err) {
+                            container.innerHTML = '<pre style="color:#d32f2f;font-size:12px;">Mermaid 渲染错误: ' + escapeHtml(err && err.message ? err.message : String(err)) + '</pre>';
+                        });
+                    }
+                }, 50);
+                return '<div class="mermaid-render" id="' + containerId + '"><span style="color:#888;font-size:12px;">⏳ 正在渲染图表...</span></div>';
+            });
+        }
+
+        // ---------- 2. JSON detection ----------
+        var trimmed = content.trim();
+        if ((trimmed.startsWith('{') && trimmed.endsWith('}')) ||
+            (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
+            try {
+                var json = JSON.parse(content);
+                var pretty = JSON.stringify(json, null, 2);
+                return '<div class="ai-json-block">' + highlightJson(pretty) + '</div>';
+            } catch (e) { /* not valid JSON */ }
+        }
+
+        // ---------- 3. Markdown detection (has markdown syntax) ----------
+        var mdRe = /^(#{1,6}\s|```|\||\*\*|__|\*|- |\d+\. )/m;
+        if (mdRe.test(content)) {
+            if (typeof marked !== 'undefined') {
+                try {
+                    var html = marked.parse(content, { breaks: true, gfm: true });
+                    return '<div class="ai-markdown-render">' + sanitizeHtml(html) + '</div>';
+                } catch (e) { /* fall through */ }
+            }
+        }
+
+        // ---------- 4. SVG detection ----------
+        if (trimmed.startsWith('<svg') || trimmed.startsWith('<?xml') && trimmed.includes('<svg')) {
+            return '<div class="mermaid-render">' + sanitizeHtml(trimmed) + '</div>';
+        }
+
+        // ---------- 5. HTML detection ----------
+        var htmlRe = /^<(!DOCTYPE|html|head|body|div|table|ul|ol|p|span|a|h[1-6])/i;
+        if (htmlRe.test(trimmed)) {
+            return '<div>' + sanitizeHtml(trimmed) + '</div>';
+        }
+
+        // ---------- 6. Plain text fallback ----------
+        return escapeHtml(content).replace(/\n/g, '<br>');
+    }
+
+    /**
+     * Simple HTML sanitizer - allow safe tags, block dangerous ones
+     */
+    function sanitizeHtml(html) {
+        if (!html) return '';
+        // Remove script, iframe, object, embed, form tags
+        return html
+            .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+            .replace(/<iframe\b[^<]*(?:(?!<\/iframe>)<[^<]*)*<\/iframe>/gi, '')
+            .replace(/<object\b[^<]*(?:(?!<\/object>)<[^<]*)*<\/object>/gi, '')
+            .replace(/<embed\b[^>]*>/gi, '')
+            .replace(/<form\b[^<]*(?:(?!<\/form>)<[^<]*)*<\/form>/gi, '')
+            .replace(/\bon\w+\s*=/gi, 'data-removed=')
+            .replace(/javascript:/gi, '');
+    }
+
+    /**
+     * Syntax highlight JSON string
+     */
+    function highlightJson(json) {
+        return escapeHtml(json)
+            .replace(/&quot;(.*?)&quot;\s*:/g, '"<span class="ai-json-key">$1</span>":')
+            .replace(/:&quot;(.*?)&quot;/g, ':<span class="ai-json-str">"$1"</span>')
+            .replace(/:(\d+\.?\d*)/g, ':<span class="ai-json-num">$1</span>')
+            .replace(/:(true|false)/g, ':<span class="ai-json-bool">$1</span>')
+            .replace(/:(null)/g, ':<span class="ai-json-null">$1</span>')
+            .replace(/([{}\[\]])/g, '<span class="ai-json-bracket">$1</span>');
+    }
+
+    function renderMessages() {
+        var list = document.getElementById('messagesList');
+        var empty = document.getElementById('emptyState');
+        
+        if (state.messages.length === 0) {
+            empty.style.display = 'block';
+            list.innerHTML = '';
+            return;
+        }
+        
+        empty.style.display = 'none';
+        
+        var html = '';
+        for (var i = 0; i < state.messages.length; i++) {
+            var msg = state.messages[i];
+            html += '<div class="message ' + msg.role + '">';
+            html += '<div class="message-avatar">' + (msg.role === 'user' ? 'U' : 'AI') + '</div>';
+            html += '<div class="message-content">';
+            html += '<div class="message-header">';
+            html += '<span class="message-sender">' + (msg.role === 'user' ? '用户' : 'AI 助手') + '</span>';
+            html += '<span class="message-time">' + msg.time + '</span>';
+            html += '</div>';
+            if (msg.isGenerating && (!msg.content || msg.content.length === 0)) {
+                // 尚无内容：显示"正在思考"
+                html += '<div class="message-body"><span class="generating-indicator">AI 正在思考</span><span class="typing-cursor"></span></div>';
+            } else if (msg.isUploadProgress) {
+                // System-generated upload progress: render HTML directly (no user input)
+                html += '<div class="message-body">' + msg.content + '</div>';
+            } else {
+                // Smart content rendering for AI responses (JSON/MD/Mermaid/SVG/HTML)
+                // User messages always escaped. 生成中且已有内容：正常渲染内容 + 光标（边生成边显示）
+                html += '<div class="message-body">' + renderContent(msg.content, msg.role);
+                if (msg.isGenerating) {
+                    html += '<span class="typing-cursor"></span>';
+                }
+                html += '</div>';
+            }
+            if (msg.isRelogin) {
+                html += '<div class="relogin-prompt"><p>请重新登录以继续使用</p><button onclick="showLoginScreen()">重新登录</button></div>';
+            }
+            if (msg.isRepoPrompt) {
+                html += '<div class="relogin-prompt"><p>需要创建仓库才能上传</p><button onclick="showRepoCreatePrompt()">创建仓库并上传</button> <button onclick="dismissPendingUploads()" style="background:#999;margin-left:8px;">暂不上传</button></div>';
+            }
+            html += '</div></div>';
+        }
+        list.innerHTML = html;
+
+        // Reliable auto-scroll to bottom (setTimeout ensures DOM has been painted)
+        var area = document.getElementById('messagesArea');
+        setTimeout(function() {
+            if (area) area.scrollTop = area.scrollHeight;
+        }, 0);
+    }
+
+    function renderSessions() {
+        var list = document.getElementById('sessionList');
+        if (state.sessions.length === 0) {
+            list.innerHTML = '<div class="session-item">默认会话</div>';
+            return;
+        }
+        
+        var html = '';
+        for (var i = 0; i < state.sessions.length; i++) {
+            var s = state.sessions[i];
+            html += '<div class="session-item' + (state.currentSession === s.id ? ' active' : '') + '" data-id="' + s.id + '">';
+            html += '<span>' + s.name + '</span></div>';
+        }
+        list.innerHTML = html;
+    }
+
+    function renderSkills() {
+        var grid = document.getElementById('skillsGrid');
+        var html = '';
+        for (var i = 0; i < state.skills.length; i++) {
+            var s = state.skills[i];
+            html += '<div class="skill-card' + (s.active ? '' : ' inactive') + '" data-skill="' + s.name + '">';
+            html += '<div class="skill-icon">' + s.icon + '</div>';
+            html += '<div class="skill-info"><h4>' + s.name + '</h4><p>' + s.description + '</p></div>';
+            html += '<label class="switch"><input type="checkbox"' + (s.active ? ' checked' : '') + ' data-skill="' + s.name + '"><span class="slider"></span></label>';
+            html += '</div>';
+        }
+        grid.innerHTML = html;
+
+        // Add toggle event listeners
+        grid.querySelectorAll('input[type="checkbox"]').forEach(function(el) {
+            el.addEventListener('change', function() {
+                var skill = state.skills.find(function(s) { return s.name === el.dataset.skill; });
+                if (skill) {
+                    skill.active = el.checked;
+                    el.closest('.skill-card').classList.toggle('inactive', !skill.active);
+                    showMessage(skill.name + ' 已' + (skill.active ? '激活' : '停用'), 'success');
+                }
+            });
+        });
+    }
+
+    function switchView(view) {
+        document.getElementById('loginScreen').style.display = view === 'login' ? 'flex' : 'none';
+        var app = document.getElementById('appContainer');
+        if (view !== 'login') {
+            app.classList.add('active');
+        } else {
+            app.classList.remove('active');
+        }
+    }
+
+    function showLoginScreen() {
+        // Merged into DocSystem: the agent no longer has its own login form.
+        // Redirect to DocSystem's shared login page instead.
+        redirectToDocSysLogin();
+    }
+
+    // ==================== Actions ====================
+
+    // Claude Code style: streaming + interruptable generation
+    async function sendMessage() {
+        var input = document.getElementById('messageInput');
+        var content = input.value.trim();
+        if (!content) return;
+
+        // If already generating, queue this message and return
+        if (state.isGenerating) {
+            state.pendingMessages.push(content);
+            showMessage('消息已加入队列 (' + state.pendingMessages.length + ' 条待发送)', 'info');
+            input.value = '';
+            updateSendButton();
+            return;
+        }
+
+        await executeWithGeneration(content, input);
+    }
+
+    async function executeWithGeneration(content, input) {
+        // Add to command history
+        if (commandHistory.indexOf(content) === -1) {
+            commandHistory.unshift(content);
+            if (commandHistory.length > 50) commandHistory.pop();
+        }
+        historyIndex = -1;
+
+        // Clear input immediately
+        input.value = '';
+        hideAutocomplete();
+
+        // Add user message
+        state.messages.push({ role: 'user', content: content, time: formatTime() });
+        renderMessages();
+
+        // Create assistant message placeholder
+        state.messages.push({ role: 'assistant', content: '', time: formatTime(), isGenerating: true });
+        var assistantIndex = state.messages.length - 1;
+        renderMessages();
+
+        // Set up abort controller
+        state.abortController = new AbortController();
+        state.isGenerating = true;
+        updateSendButton(); // Show stop button
+
+        var fullContent = '';
+        var streamError = null;
+        var isSessionExpired = false;
+
+        try {
+            var url = API_BASE + '/stream?command=' + encodeURIComponent(content);
+            if (state.sessionId) url += '&sessionId=' + encodeURIComponent(state.sessionId);
+
+            var response = await fetch(url, {
+                headers: { 'Accept': 'text/event-stream' },
+                signal: state.abortController.signal
+            });
+
+            if (!response.ok) {
+                throw new Error('HTTP ' + response.status);
+            }
+
+            var reader = response.body.getReader();
+            var decoder = new TextDecoder();
+            var buffer = '';
+
+            while (true) {
+                var result = await reader.read();
+                if (result.done) break;
+
+                // Append new data to buffer
+                if (result.value) {
+                    buffer += decoder.decode(result.value, { stream: true });
+                }
+
+                // SSE events are separated by \n\n (double newline)
+                // Each event may span multiple lines (data: <json>\n)
+                while (buffer.includes('\n\n')) {
+                    var eventEnd = buffer.indexOf('\n\n');
+                    var eventData = buffer.substring(0, eventEnd);
+                    buffer = buffer.substring(eventEnd + 2);
+
+                    // Strip "data:" prefix from event
+                    var trimmed = eventData.trim();
+                    if (trimmed.startsWith('data:')) {
+                        trimmed = trimmed.substring(5).trimStart();
+                    }
+                    if (trimmed.startsWith('event:')) continue;
+
+                    try {
+                        var event = JSON.parse(trimmed);
+                        if (event.type === 'chunk') {
+                            fullContent += event.content;
+                            state.messages[assistantIndex] = {
+                                role: 'assistant',
+                                content: fullContent,
+                                time: formatTime(),
+                                isGenerating: true
+                            };
+                            renderMessages();
+                        } else if (event.type === 'done') {
+                            state.messages[assistantIndex] = {
+                                role: 'assistant',
+                                content: event.fullContent || fullContent,
+                                time: formatTime()
+                            };
+                            renderMessages();
+                        } else if (event.type === 'error') {
+                            streamError = event.message;
+                            if (handleAuthError(event.message)) { isSessionExpired = true; return; }
+                        }
+                    } catch (e) {
+                        // Skip malformed JSON
+                    }
+                }
+            }
+
+            // Flush remaining buffer (trailing event without \n\n)
+            if (buffer.trim()) {
+                var trimmed = buffer.trim();
+                if (trimmed.startsWith('data:')) trimmed = trimmed.substring(5).trimStart();
+                try {
+                    var lastEvent = JSON.parse(trimmed);
+                    if (lastEvent.type === 'chunk') {
+                        fullContent += lastEvent.content;
+                        state.messages[assistantIndex] = {
+                            role: 'assistant', content: fullContent, time: formatTime(), isGenerating: true
+                        };
+                        renderMessages();
+                    } else if (lastEvent.type === 'done') {
+                        state.messages[assistantIndex] = {
+                            role: 'assistant', content: lastEvent.fullContent || fullContent, time: formatTime()
+                        };
+                    }
+                } catch (e) {}
+            }
+        } catch (err) {
+            if (err.name === 'AbortError') {
+                state.messages[assistantIndex] = {
+                    role: 'assistant',
+                    content: fullContent ? fullContent + '\n(生成已中断)' : '(生成已中断)',
+                    time: formatTime()
+                };
+                showMessage('已停止生成', 'info');
+            } else {
+                state.messages[assistantIndex] = {
+                    role: 'assistant',
+                    content: '请求失败: ' + err.message,
+                    time: formatTime()
+                };
+            }
+        }
+
+        // Clear generation state
+        state.isGenerating = false;
+        state.abortController = null;
+        updateSendButton(); // Show send button
+        renderMessages();
+
+        // Refresh soul evolution data after interaction
+        setTimeout(refreshSoulData, 1000);
+
+        // Process queued messages
+        if (state.pendingMessages.length > 0) {
+            var next = state.pendingMessages.shift();
+            try { localStorage.setItem('docsys_pending_queue', JSON.stringify(state.pendingMessages)); } catch(e) {}
+            await executeWithGeneration(next, document.getElementById('messageInput'));
+        } else {
+            try { localStorage.removeItem('docsys_pending_queue'); } catch(e) {}
+        }
+    }
+
+    function stopGeneration() {
+        if (state.abortController) {
+            state.abortController.abort();
+            state.abortController = null;
+        }
+        state.isGenerating = false;
+        updateSendButton();
+    }
+
+    function updateSendButton() {
+        var sendBtn = document.getElementById('sendBtn');
+        var stopBtn = document.getElementById('stopBtn');
+        if (!sendBtn || !stopBtn) return;
+
+        if (state.isGenerating) {
+            sendBtn.style.display = 'none';
+            stopBtn.style.display = 'block';
+            // Show pending count badge on input
+            var tip = document.querySelector('.input-tip');
+            if (tip && state.pendingMessages.length > 0) {
+                tip.innerHTML = '⏳ ' + state.pendingMessages.length + ' 条消息等待发送 · 按停止后可继续输入';
+            } else if (tip) {
+                tip.textContent = 'AI 正在思考... 按停止可中断';
+            }
+        } else {
+            sendBtn.style.display = 'block';
+            stopBtn.style.display = 'none';
+            var tip = document.querySelector('.input-tip');
+            if (tip) tip.textContent = '输入 help 查看可用命令 · 支持拖拽上传文件 · Tab 补全';
+        }
+    }
+
+    // ==================== Events ====================
+    document.getElementById('sendBtn').addEventListener('click', sendMessage);
+    document.getElementById('stopBtn').addEventListener('click', function() {
+        stopGeneration();
+    });
+
+    document.getElementById('messageInput').addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            // If generating, Escape also works or Enter queues
+            hideAutocomplete();
+            sendMessage();
+            return;
+        }
+        // Escape during generation = stop
+        if (e.key === 'Escape' && state.isGenerating) {
+            e.preventDefault();
+            stopGeneration();
+            return;
+        }
+        // Tab autocomplete
+        if (e.key === 'Tab') {
+            var suggestions = document.getElementById('autocompleteSuggestions');
+            if (suggestions && suggestions.style.display !== 'none') {
+                e.preventDefault();
+                acceptAutocomplete();
+                return;
+            }
+        }
+        // Navigate autocomplete with arrow keys
+        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+            var sug = document.getElementById('autocompleteSuggestions');
+            if (sug && sug.style.display !== 'none') {
+                e.preventDefault();
+                navigateAutocomplete(e.key === 'ArrowDown' ? 1 : -1);
+                return;
+            }
+        }
+        // Escape hides autocomplete
+        if (e.key === 'Escape') {
+            hideAutocomplete();
+        }
+    });
+
+    // Autocomplete on input
+    document.getElementById('messageInput').addEventListener('input', function(e) {
+        var value = e.target.value.trim();
+        // 自动 resize textarea
+        autoResizeTextarea(e.target);
+        // 更新字符计数
+        updateCharCounter(e.target);
+        if (value.length > 0) {
+            // Load skills if not cached
+            if (state.allSkills.length === 0) {
+                fetch(API_BASE + '/skills').then(function(res) { return res.json(); })
+                    .then(function(data) {
+                        if (data.success && data.data) state.allSkills = data.data.skills || [];
+                        showAutocomplete(value);
+                    }).catch(function() {});
+            } else {
+                showAutocomplete(value);
+            }
+        } else {
+            hideAutocomplete();
+        }
+    });
+
+    // Auto-resize textarea based on content
+    function autoResizeTextarea(textarea) {
+        if (!textarea) return;
+        textarea.style.height = 'auto';
+        var newHeight = Math.min(textarea.scrollHeight, 200);
+        textarea.style.height = newHeight + 'px';
+        // 当内容超过最大高度时显示滚动条
+        textarea.style.overflowY = textarea.scrollHeight > 200 ? 'auto' : 'hidden';
+    }
+
+    // Update character counter
+    function updateCharCounter(textarea) {
+        var counter = document.getElementById('charCounter');
+        if (!counter) return;
+        var len = textarea.value.length;
+        var max = 4000;
+        counter.textContent = len + ' / ' + max;
+        counter.className = 'char-counter';
+        if (len > max * 0.9) counter.classList.add('near-limit');
+        if (len >= max) counter.classList.add('at-limit');
+    }
+
+    function showAutocomplete(query) {
+        var container = document.getElementById('autocompleteSuggestions');
+        if (!container) return;
+
+        var q = query.toLowerCase();
+        var matches = state.allSkills.filter(function(s) {
+            return s.id.toLowerCase().startsWith(q) ||
+                   s.name.toLowerCase().includes(q);
+        }).slice(0, 8);
+
+        if (matches.length === 0) {
+            hideAutocomplete();
+            return;
+        }
+
+        var html = '';
+        for (var i = 0; i < matches.length; i++) {
+            var s = matches[i];
+            html += '<div class="autocomplete-item' + (i === state.autocompleteIndex ? ' selected' : '') + '" data-value="' + escapeHtml(s.id) + '">';
+            html += '<span class="autocomplete-item-name">' + escapeHtml(s.id) + '</span>';
+            html += '<span class="autocomplete-item-desc">' + escapeHtml(s.description || s.name || '') + '</span>';
+            html += '</div>';
+        }
+        container.innerHTML = html;
+        container.style.display = 'block';
+
+        // Click to select
+        container.querySelectorAll('.autocomplete-item').forEach(function(item) {
+            item.addEventListener('click', function() {
+                document.getElementById('messageInput').value = item.dataset.value + ' ';
+                hideAutocomplete();
+                document.getElementById('messageInput').focus();
+            });
+        });
+    }
+
+    function hideAutocomplete() {
+        var container = document.getElementById('autocompleteSuggestions');
+        if (container) {
+            container.style.display = 'none';
+            container.innerHTML = '';
+        }
+        state.autocompleteIndex = -1;
+    }
+
+    function navigateAutocomplete(dir) {
+        var container = document.getElementById('autocompleteSuggestions');
+        var items = container ? container.querySelectorAll('.autocomplete-item') : [];
+        if (items.length === 0) return;
+
+        if (state.autocompleteIndex >= 0) {
+            items[state.autocompleteIndex].classList.remove('selected');
+        }
+        state.autocompleteIndex = (state.autocompleteIndex + dir + items.length) % items.length;
+        items[state.autocompleteIndex].classList.add('selected');
+        items[state.autocompleteIndex].scrollIntoView({ block: 'nearest' });
+    }
+
+    function acceptAutocomplete() {
+        var container = document.getElementById('autocompleteSuggestions');
+        var items = container ? container.querySelectorAll('.autocomplete-item') : [];
+        var idx = state.autocompleteIndex >= 0 ? state.autocompleteIndex : 0;
+        if (items.length > 0) {
+            var val = items[idx].dataset.value;
+            document.getElementById('messageInput').value = val + ' ';
+            hideAutocomplete();
+        }
+    }
+    
+    // Quick commands
+    var quickTags = document.querySelectorAll('.quick-tag');
+    for (var i = 0; i < quickTags.length; i++) {
+        quickTags[i].addEventListener('click', (function(tag) {
+            return function() {
+                document.getElementById('messageInput').value = tag.dataset.cmd;
+                sendMessage();
+            };
+        })(quickTags[i]));
+    }
+    
+    // Dialogs
+    document.getElementById('skillsBtn').addEventListener('click', function() {
+        renderSkills();
+        loadSkillsIntoDialog(); // Load skill marketplace
+        refreshSoulData(); // Refresh soul evolution data
+        document.getElementById('skillsDialog').classList.add('active');
+    });
+
+    // Help Dialog
+    document.getElementById('helpBtn').addEventListener('click', function() {
+        showHelpDialog();
+        document.getElementById('helpDialog').classList.add('active');
+    });
+
+    // Help search
+    document.getElementById('helpSearch').addEventListener('input', function(e) {
+        renderHelpCommands(e.target.value);
+    });
+
+    // Keyboard shortcuts
+    document.addEventListener('keydown', function(e) {
+        // Ctrl+H - Help
+        if (e.ctrlKey && e.key === 'h') {
+            e.preventDefault();
+            document.getElementById('helpBtn').click();
+        }
+        // Ctrl+L - Clear messages
+        if (e.ctrlKey && e.key === 'l') {
+            e.preventDefault();
+            state.messages = [];
+            renderMessages();
+            showMessage('对话已清空', 'info');
+        }
+        // Escape - Close dialogs and autocomplete
+        if (e.key === 'Escape') {
+            hideAutocomplete();
+            document.querySelectorAll('.dialog-overlay.active').forEach(function(d) {
+                d.classList.remove('active');
+            });
+        }
+        // Command history with arrow keys
+        if (e.key === 'ArrowUp' && document.activeElement === document.getElementById('messageInput')) {
+            e.preventDefault();
+            navigateHistory(-1);
+        }
+        if (e.key === 'ArrowDown' && document.activeElement === document.getElementById('messageInput')) {
+            e.preventDefault();
+            navigateHistory(1);
+        }
+    });
+    
+    document.getElementById('settingsBtn').addEventListener('click', function() {
+        document.getElementById('settingsDialog').classList.add('active');
+    });
+    
+    var closeBtns = document.querySelectorAll('[data-close]');
+    for (var i = 0; i < closeBtns.length; i++) {
+        closeBtns[i].addEventListener('click', function() {
+            this.closest('.dialog-overlay').classList.remove('active');
+        });
+    }
+    
+    var dialogs = document.querySelectorAll('.dialog-overlay');
+    for (var i = 0; i < dialogs.length; i++) {
+        dialogs[i].addEventListener('click', function(e) {
+            if (e.target === this) this.classList.remove('active');
+        });
+    }
+
+    // ==================== File Upload ====================
+    // 多文件上传按钮
+    document.getElementById('uploadFileBtn').addEventListener('click', function() {
+        var input = document.createElement('input');
+        input.type = 'file';
+        input.multiple = true;
+        input.accept = '*/*';
+        input.onchange = function(e) {
+            var files = e.target.files;
+            if (files.length > 0) {
+                if (files.length === 1) {
+                    uploadFile(files[0]);
+                } else {
+                    uploadMultipleFiles(files);
+                }
+            }
+        };
+        input.click();
+    });
+
+    // 文件夹上传按钮
+    document.getElementById('uploadFolderBtn').addEventListener('click', function() {
+        var input = document.createElement('input');
+        input.type = 'file';
+        input.webkitdirectory = true;
+        input.onchange = function(e) {
+            var files = e.target.files;
+            if (files.length > 0) {
+                uploadFolder(files);
+            }
+        };
+        input.click();
+    });
+
+    // ==================== Upload Progress Bar ====================
+    var uploadProgressId = null;
+
+    function createProgressBar(fileName) {
+        var msgId = 'upload-progress-' + Date.now();
+        state.messages.push({
+            role: 'system',
+            content: '📤 上传中: ' + fileName + '\n' +
+                '<div class="upload-progress-container" id="' + msgId + '">' +
+                '<div class="upload-progress-bar"><div class="upload-progress-fill" style="width: 0%"></div></div>' +
+                '<span class="upload-progress-text">0%</span></div>',
+            time: formatTime(),
+            isUploadProgress: true,
+            progressMsgId: msgId
+        });
+        renderMessages();
+        return msgId;
+    }
+
+    function updateProgress(msgId, percent) {
+        var el = document.getElementById(msgId);
+        if (el) {
+            var fill = el.querySelector('.upload-progress-fill');
+            var text = el.querySelector('.upload-progress-text');
+            if (fill) fill.style.width = percent + '%';
+            if (text) text.textContent = percent + '%';
+        }
+    }
+
+    function removeProgress(msgId) {
+        var el = document.getElementById(msgId);
+        if (el) {
+            el.closest('.message').remove();
+        }
+    }
+
+    // Upload with XMLHttpRequest for progress tracking
+    /**
+     * Discover available repos and return the first available reposId.
+     * Caches the result in sessionStorage for the duration of the session.
+     */
+    var _cachedReposId = null;
+    async function discoverReposId() {
+        if (_cachedReposId !== null) return _cachedReposId;
+
+        try {
+            var url = API_BASE + '/repos?sessionId=' + encodeURIComponent(state.sessionId || '');
+            var resp = await fetch(url);
+            var data = await resp.json();
+            if (data && !data.success && handleAuthError(data.message)) return null;
+            if (data.success && data.data && data.data.firstVid > 0) {
+                _cachedReposId = String(data.data.firstVid);
+                return _cachedReposId;
+            }
+        } catch (e) {
+            console.warn('Failed to discover repos:', e);
+        }
+
+        // Fallback: try reposId=3 (common default) or 1
+        _cachedReposId = '3';
+        return _cachedReposId;
+    }
+
+    function uploadWithProgress(file, reposId, path, name, sessionId) {
+        return new Promise(function(resolve, reject) {
+            var xhr = new XMLHttpRequest();
+            var formData = new FormData();
+            formData.append('file', file);
+            formData.append('reposId', reposId || '1');
+            formData.append('path', path || '/');
+            formData.append('name', name || file.name);
+            if (sessionId) formData.append('sessionId', sessionId);
+
+            xhr.open('POST', API_BASE + '/upload', true);
+
+            xhr.upload.onprogress = function(e) {
+                if (e.lengthComputable) {
+                    var percent = Math.round((e.loaded / e.total) * 100);
+                    if (uploadProgressId) {
+                        updateProgress(uploadProgressId, percent);
+                    }
+                }
+            };
+
+            xhr.onload = function() {
+                try {
+                    var result = JSON.parse(xhr.responseText);
+                    resolve(result);
+                } catch (e) {
+                    reject(new Error('解析响应失败'));
+                }
+            };
+
+            xhr.onerror = function() {
+                reject(new Error('网络错误'));
+            };
+
+            xhr.send(formData);
+        });
+    }
+
+    // 单文件上传函数
+    async function uploadFile(file) {
+        if (!state.isLoggedIn) {
+            showMessage('请先登录', 'error');
+            return;
+        }
+
+        showMessage('正在上传: ' + file.name + '...', 'info');
+        uploadProgressId = createProgressBar(file.name + ' (' + formatFileSize(file.size) + ')');
+
+        try {
+            var reposId = await discoverReposId();
+            var result = await uploadWithProgress(file, reposId, '/', file.name, state.sessionId || '');
+
+            if (result.success) {
+                showMessage('上传成功', 'success');
+                state.messages.push({ role: 'system', content: '✅ 上传成功: ' + file.name, time: formatTime() });
+            } else {
+                var errMsg = result.message || '';
+                // Check if it's a repo-not-found error
+                if (errMsg.includes('仓库') || errMsg.includes('repository') || errMsg.includes('repo') || errMsg.includes('Repo')) {
+                    handleRepoNotFoundUpload(file);
+                } else {
+                    showMessage('上传失败: ' + errMsg, 'error');
+                    state.messages.push({ role: 'system', content: '❌ 上传失败: ' + file.name + ' - ' + errMsg, time: formatTime() });
+                }
+            }
+        } catch (err) {
+            showMessage('上传失败: ' + err.message, 'error');
+            state.messages.push({ role: 'system', content: '❌ 上传失败: ' + file.name + ' - ' + err.message, time: formatTime() });
+        }
+
+        if (uploadProgressId) {
+            removeProgress(uploadProgressId);
+            uploadProgressId = null;
+        }
+        renderMessages();
+    }
+
+    // 多文件上传函数
+    async function uploadMultipleFiles(files) {
+        if (!state.isLoggedIn) {
+            showMessage('请先登录', 'error');
+            return;
+        }
+
+        showMessage('正在上传 ' + files.length + ' 个文件...', 'info');
+        state.messages.push({ role: 'system', content: '📤 批量上传中: ' + files.length + ' 个文件', time: formatTime() });
+        renderMessages();
+
+        let successCount = 0;
+        let failCount = 0;
+
+        for (var i = 0; i < files.length; i++) {
+            var file = files[i];
+            uploadProgressId = createProgressBar('(' + (i + 1) + '/' + files.length + ') ' + file.name);
+
+            try {
+                var reposId = await discoverReposId();
+                var result = await uploadWithProgress(file, reposId, '/', file.name, state.sessionId || '');
+                if (result.success) {
+                    successCount++;
+                } else {
+                    failCount++;
+                    var errMsg = result.message || '';
+                    if (errMsg.includes('仓库') || errMsg.includes('repository') || errMsg.includes('repo')) {
+                        // Only trigger repo-not-found once, at the first failure
+                        if (state.pendingUploads.length === 0) {
+                            handleRepoNotFoundUpload(file);
+                        }
+                    }
+                }
+            } catch (err) {
+                failCount++;
+            }
+
+            if (uploadProgressId) {
+                removeProgress(uploadProgressId);
+                uploadProgressId = null;
+            }
+        }
+
+        if (failCount === 0) {
+            showMessage('全部 ' + successCount + ' 个文件上传成功', 'success');
+            state.messages.push({ role: 'system', content: '✅ 批量上传成功: ' + successCount + ' 个文件', time: formatTime() });
+        } else {
+            showMessage(successCount + ' 成功, ' + failCount + ' 失败', 'warning');
+            state.messages.push({ role: 'system', content: '⚠️ 批量上传完成: ' + successCount + ' 成功, ' + failCount + ' 失败', time: formatTime() });
+        }
+        renderMessages();
+    }
+
+    // 文件夹上传函数
+    async function uploadFolder(files) {
+        if (!state.isLoggedIn) {
+            showMessage('请先登录', 'error');
+            return;
+        }
+
+        var batchStartTime = Date.now();
+        showMessage('正在上传文件夹 (' + files.length + ' 个文件)...', 'info');
+        state.messages.push({ role: 'system', content: '📁 上传文件夹: ' + files.length + ' 个文件', time: formatTime() });
+
+        // 创建总体进度条
+        var totalProgressId = createProgressBar('文件夹上传 (0/' + files.length + ')');
+
+        let successCount = 0;
+        let failCount = 0;
+
+        for (var i = 0; i < files.length; i++) {
+            var file = files[i];
+            var dirPath = file.webkitRelativePath || '';
+            var isEnd = (i === files.length - 1) ? 1 : 0;
+
+            try {
+                var reposId = await discoverReposId();
+                var result = await uploadWithProgress(file, reposId, '/', file.name, state.sessionId || '');
+                if (result.success) {
+                    successCount++;
+                } else {
+                    failCount++;
+                    var errMsg = result.message || '';
+                    if (errMsg.includes('仓库') || errMsg.includes('repository') || errMsg.includes('repo')) {
+                        if (state.pendingUploads.length === 0) {
+                            handleRepoNotFoundUpload(file);
+                        }
+                    }
+                }
+            } catch (err) {
+                failCount++;
+            }
+
+            // 更新总体进度
+            var percent = Math.round(((i + 1) / files.length) * 100);
+            updateProgress(totalProgressId, percent);
+
+            // 更新进度条文字
+            var el = document.getElementById(totalProgressId);
+            if (el) {
+                var text = el.querySelector('.upload-progress-text');
+                if (text) text.textContent = (i + 1) + '/' + files.length;
+            }
+        }
+
+        if (uploadProgressId === totalProgressId) {
+            removeProgress(totalProgressId);
+            uploadProgressId = null;
+        }
+
+        if (failCount === 0) {
+            showMessage('文件夹上传成功: ' + successCount + ' 个文件', 'success');
+            state.messages.push({ role: 'system', content: '✅ 文件夹上传成功: ' + successCount + ' 个文件', time: formatTime() });
+        } else {
+            showMessage('文件夹上传完成: ' + successCount + ' 成功, ' + failCount + ' 失败', 'warning');
+            state.messages.push({ role: 'system', content: '⚠️ 文件夹上传完成: ' + successCount + ' 成功, ' + failCount + ' 失败', time: formatTime() });
+        }
+        renderMessages();
+    }
+
+    function formatFileSize(bytes) {
+        if (bytes < 1024) return bytes + ' B';
+        if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+        return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+    }
+
+    // ==================== Pending Uploads Handler ====================
+    function handleRepoNotFoundUpload(file) {
+        // Check if we have pending uploads for this file already
+        var pendingKey = file.name + '_' + file.size;
+        var isPending = state.pendingUploads.some(function(f) {
+            return f.name === file.name && f.size === file.size;
+        });
+
+        if (!isPending) {
+            state.pendingUploads.push({ name: file.name, size: file.size, webkitRelativePath: file.webkitRelativePath || '' });
+            savePendingUploads();
+        }
+
+        var count = state.pendingUploads.length;
+        var msg = count === 1
+            ? '⚠️ 仓库不存在！\n文件【' + file.name + '】已暂存，等待创建仓库后自动上传。\n\n是否立即创建一个新仓库？'
+            : '⚠️ 仓库不存在！\n还有 ' + count + ' 个文件等待上传。\n\n是否立即创建一个新仓库来接收这些文件？';
+
+        // Remove the generic "upload failed" message and replace with the prompt
+        // The failed upload message was already added; we'll add the prompt right after it
+        state.messages.push({ role: 'system', content: msg, time: formatTime(), isRepoPrompt: true, pendingKey: pendingKey });
+        renderMessages();
+
+        // Scroll to bottom
+        document.getElementById('messagesArea').scrollTop = document.getElementById('messagesArea').scrollHeight;
+    }
+
+    function savePendingUploads() {
+        try {
+            localStorage.setItem('docsys_pending_uploads', JSON.stringify(state.pendingUploads));
+        } catch (e) { /* ignore */ }
+    }
+
+    function loadPendingUploads() {
+        try {
+            var saved = localStorage.getItem('docsys_pending_uploads');
+            if (saved) {
+                state.pendingUploads = JSON.parse(saved);
+            }
+        } catch (e) { state.pendingUploads = []; }
+    }
+
+    function clearPendingUploads() {
+        state.pendingUploads = [];
+        try { localStorage.removeItem('docsys_pending_uploads'); } catch (e) { /* ignore */ }
+    }
+
+    function dismissPendingUploads() {
+        clearPendingUploads();
+        // Remove repo prompt messages
+        state.messages = state.messages.filter(function(m) { return !m.isRepoPrompt; });
+        renderMessages();
+        showMessage('已取消待上传文件', 'info');
+    }
+
+    function showRepoCreatePrompt() {
+        var repoName = prompt('请输入新仓库名称（英文或拼音，推荐用英文）：\n例如：my-docs, project-files, documents', 'my-docs');
+        if (!repoName || !repoName.trim()) return;
+
+        repoName = repoName.trim();
+        showMessage('正在创建仓库: ' + repoName + '...', 'info');
+        state.messages.push({ role: 'system', content: '🔧 正在创建仓库【' + repoName + '】...', time: formatTime() });
+        renderMessages();
+
+        API.execute('create-repos ' + repoName, state.sessionId).then(function(result) {
+            if (result.success && result.message) {
+                showMessage('仓库【' + repoName + '】创建成功！', 'success');
+                state.messages.push({ role: 'system', content: '✅ 仓库【' + repoName + '】创建成功！\n请重新上传文件，系统将上传到新仓库。', time: formatTime() });
+
+                // Remove the repo prompt messages
+                state.messages = state.messages.filter(function(m) { return !m.isRepoPrompt; });
+                renderMessages();
+
+                // Trigger file picker for pending files
+                var count = state.pendingUploads.length;
+                showMessage('请重新选择 ' + count + ' 个文件进行上传', 'info');
+
+                // Programmatically trigger file input
+                var input = document.createElement('input');
+                input.type = 'file';
+                input.multiple = true;
+                input.accept = '*/*';
+                input.onchange = function(e) {
+                    var files = e.target.files;
+                    if (files.length > 0) {
+                        if (files.length === 1) {
+                            uploadFile(files[0]);
+                        } else {
+                            uploadMultipleFiles(files);
+                        }
+                    }
+                };
+                input.click();
+            } else {
+                showMessage('仓库创建失败: ' + (result.message || '未知错误'), 'error');
+                state.messages.push({ role: 'system', content: '❌ 仓库创建失败: ' + (result.message || '未知错误'), time: formatTime() });
+                renderMessages();
+            }
+        }).catch(function(err) {
+            showMessage('仓库创建请求失败: ' + err.message, 'error');
+            state.messages.push({ role: 'system', content: '❌ 仓库创建失败: ' + err.message, time: formatTime() });
+            renderMessages();
+        });
+    }
+
+    async function retryPendingUploads(repoId) {
+        // Files can't be programmatically recreated in browser, so prompt user to re-select
+        if (state.pendingUploads.length === 0) return;
+
+        var count = state.pendingUploads.length;
+        var names = state.pendingUploads.map(function(f) { return '• ' + f.name; }).join('\n');
+        showMessage('请重新选择 ' + count + ' 个文件上传到新仓库', 'info');
+        state.messages.push({ role: 'system', content: '📂 请重新选择 ' + count + ' 个文件:\n' + names, time: formatTime() });
+        renderMessages();
+
+        var input = document.createElement('input');
+        input.type = 'file';
+        input.multiple = true;
+        input.accept = '*/*';
+        input.onchange = function(e) {
+            var files = e.target.files;
+            if (files.length > 0) {
+                clearPendingUploads();
+                if (files.length === 1) {
+                    uploadFile(files[0]);
+                } else {
+                    uploadMultipleFiles(files);
+                }
+            }
+        };
+        input.click();
+    }
+
+    // Save settings
+    document.getElementById('saveSettingsBtn').addEventListener('click', function() {
+        var newTheme = document.getElementById('themeSelect').value;
+        state.settings.theme = newTheme;
+        state.settings.llmModel = document.getElementById('llmModel').value;
+        state.settings.llmEndpoint = document.getElementById('llmEndpoint').value;
+        state.settings.llmApiKey = document.getElementById('llmApiKey').value;
+        state.settings.autoLearn = document.getElementById('autoLearn').value === 'true';
+        state.settings.healthCheckInterval = parseInt(document.getElementById('healthCheckInterval').value);
+
+        // Persist to localStorage
+        try {
+            localStorage.setItem('docsys_settings', JSON.stringify(state.settings));
+        } catch (e) { /* ignore */ }
+
+        // Apply theme immediately
+        if (newTheme === 'dark') {
+            document.body.classList.add('dark-theme');
+        } else {
+            document.body.classList.remove('dark-theme');
+        }
+
+        showMessage('设置已保存', 'success');
+        document.getElementById('settingsDialog').classList.remove('active');
+        refreshSoulData();
+    });
+
+    // Clear alerts button
+    document.getElementById('clearAlertsBtn').addEventListener('click', async function() {
+        var success = await API.clearAlerts();
+        if (success) {
+            showMessage('告警已清除', 'success');
+            refreshSoulData();
+        } else {
+            showMessage('清除告警失败', 'error');
+        }
+    });
+
+    // View performance button
+    document.getElementById('viewPerformanceBtn').addEventListener('click', async function() {
+        var perf = await API.getEvolutionPerformance();
+        if (perf) {
+            var topOps = perf.topOperations || [];
+            var msg = 'Top 操作:\n' + topOps.map(function(o) {
+                return o.operation + ': ' + o.count + '次, 成功率' + (o.successRate * 100).toFixed(0) + '%';
+            }).join('\n');
+            alert(msg);
+        } else {
+            showMessage('获取性能报告失败', 'error');
+        }
+    });
+    
+    // New session
+    document.getElementById('newSessionBtn').addEventListener('click', function() {
+        var newId = 'session_' + Date.now();
+        state.sessions.push({ id: newId, name: '新会话' });
+        state.currentSession = newId;
+        state.messages = [];
+        renderSessions();
+        renderMessages();
+    });
+    
+    // Session click
+    document.getElementById('sessionList').addEventListener('click', function(e) {
+        var item = e.target.closest('.session-item');
+        if (item) {
+            state.currentSession = item.dataset.id;
+            state.messages = [];
+            renderSessions();
+            renderMessages();
+        }
+    });
+
+    // ==================== Startup: shared DocSystem session ====================
+    // The agent is merged into DocSystem (same origin, /DocSystem). It no longer
+    // does its own login: check DocSystem's shared session on load. If logged in,
+    // enter the app directly; otherwise redirect to DocSystem's login page.
+    function enterApp(user) {
+        state.isLoggedIn = true;
+        state.username = (user && user.name) ? user.name : '';
+        if (!state.sessions || state.sessions.length === 0) {
+            state.sessions = [{ id: 'default', name: '新会话' }];
+            state.currentSession = 'default';
+        }
+        switchView('app');
+        renderSessions();
+        renderMessages();
+        updateSendButton();
+        refreshSoulData();
+    }
+
+    async function checkDocSysLogin() {
+        // 合并进 DocSystem 后不在前端做登录拦截：页面照常进入。
+        // 正常入口（AIChat 图标跳转）用户必已登录；直接访问的情况也让其看到界面，
+        // 待调用后端接口时若未登录，由后端返回 NOT_LOGGED_IN，前端作为普通错误提示。
+        // 这里只“尽力”取一下用户名用于展示，取不到也不跳转、不拦截。
+        try {
+            var res = await fetch('/DocSystem/User/getLoginUser.do', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: '',
+                credentials: 'same-origin'
+            });
+            var ret = await res.json();
+            if (ret && ret.status === 'ok' && ret.data) {
+                enterApp(ret.data);
+                return;
+            }
+        } catch (e) {
+            console.warn('getLoginUser check failed (ignored):', e);
+        }
+        // 未登录或检查失败：仍进入 app（不跳转），后端会在操作时返回未登录提示。
+        enterApp(null);
+    }
+
+    checkDocSysLogin();
+    </script>
+</body>
+</html>
