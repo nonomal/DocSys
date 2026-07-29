@@ -483,7 +483,7 @@ public class AgentController {
             SseEmitter authEmitter = new SseEmitter(5000L);
             try {
                 authEmitter.send(SseEmitter.event()
-                    .data("{\"type\":\"error\",\"message\":\"NOT_LOGGED_IN\"}"));
+                    .data("{\"type\":\"error\",\"message\":\"NOT_LOGGED_IN\"}", MediaType.TEXT_PLAIN));
                 authEmitter.complete();
             } catch (Exception ignored) {}
             if (rateLimitService != null) rateLimitService.releaseSseSlot(capturedClientIp);
@@ -500,7 +500,7 @@ public class AgentController {
             log.info("SSE stream started for command: {}", command);
             try {
                 emitter.send(SseEmitter.event()
-                    .data("{\"type\":\"start\"}"));
+                    .data("{\"type\":\"start\"}", MediaType.TEXT_PLAIN));
 
                 String lowerCmd = command.toLowerCase().trim();
                 boolean isAiChat = lowerCmd.startsWith("chat ") ||
@@ -536,16 +536,16 @@ public class AgentController {
                         if ("[DONE]".equals(chunk)) break;
                         if (chunk.startsWith("[ERROR]")) {
                             emitter.send(SseEmitter.event()
-                                .data("{\"type\":\"error\",\"message\":\"" + chunk.substring(8) + "\"}"));
+                                .data("{\"type\":\"error\",\"message\":\"" + chunk.substring(8) + "\"}", MediaType.TEXT_PLAIN));
                             break;
                         }
                         fullContent.append(chunk);
                         emitter.send(SseEmitter.event()
-                            .data("{\"type\":\"chunk\",\"content\":" + escapeJson(chunk) + "}"));
+                            .data("{\"type\":\"chunk\",\"content\":" + escapeJson(chunk) + "}", MediaType.TEXT_PLAIN));
                     }
 
                     emitter.send(SseEmitter.event()
-                        .data("{\"type\":\"done\",\"fullContent\":" + escapeJson(fullContent.toString()) + "}"));
+                        .data("{\"type\":\"done\",\"fullContent\":" + escapeJson(fullContent.toString()) + "}", MediaType.TEXT_PLAIN));
 
                 } else {
                     // Non-AI command: execute and stream result
@@ -574,13 +574,13 @@ public class AgentController {
                         emitter.send(SseEmitter.event()
                             .data("{\"type\":\"confirm\",\"confirmToken\":\"" + confirmToken +
                                   "\",\"operation\":\"" + operationType +
-                                  "\",\"message\":" + escapeJson(confirmMessage) + "}"));
+                                  "\",\"message\":" + escapeJson(confirmMessage) + "}", MediaType.TEXT_PLAIN));
 
                         // Wait for confirmation (poll with timeout)
                         boolean approved = waitForConfirmation(confirmToken, 120, TimeUnit.SECONDS);
                         if (!approved) {
                             emitter.send(SseEmitter.event()
-                                .data("{\"type\":\"error\",\"message\":\"Confirmation timeout or rejected\"}"));
+                                .data("{\"type\":\"error\",\"message\":\"Confirmation timeout or rejected\"}", MediaType.TEXT_PLAIN));
                             emitter.complete();
                             return;
                         }
@@ -594,7 +594,7 @@ public class AgentController {
                     } catch (Exception ex) {
                         log.error("executeInternal failed", ex);
                         emitter.send(SseEmitter.event()
-                            .data("{\"type\":\"error\",\"message\":" + escapeJson("执行失败: " + ex.getMessage()) + "}"));
+                            .data("{\"type\":\"error\",\"message\":" + escapeJson("执行失败: " + ex.getMessage()) + "}", MediaType.TEXT_PLAIN));
                         emitter.complete();
                         return;
                     }
@@ -617,14 +617,14 @@ public class AgentController {
                         int end = Math.min(i + chunkSize, responseText.length());
                         String part = responseText.substring(i, end);
                         emitter.send(SseEmitter.event()
-                            .data("{\"type\":\"chunk\",\"content\":" + escapeJson(part) + "}"));
+                            .data("{\"type\":\"chunk\",\"content\":" + escapeJson(part) + "}", MediaType.TEXT_PLAIN));
                         if (i + chunkSize < responseText.length()) {
                             Thread.sleep(15); // typing effect delay
                         }
                     }
 
                     emitter.send(SseEmitter.event()
-                        .data("{\"type\":\"done\",\"fullContent\":" + escapeJson(responseText) + "}"));
+                        .data("{\"type\":\"done\",\"fullContent\":" + escapeJson(responseText) + "}", MediaType.TEXT_PLAIN));
                 }
 
                 emitter.complete();
@@ -633,7 +633,7 @@ public class AgentController {
                 log.error("SSE stream error", e);
                 try {
                     emitter.send(SseEmitter.event()
-                        .data("{\"type\":\"error\",\"message\":" + escapeJson(e.getMessage()) + "}"));
+                        .data("{\"type\":\"error\",\"message\":" + escapeJson(e.getMessage()) + "}", MediaType.TEXT_PLAIN));
                 } catch (Exception ignored) {}
                 emitter.completeWithError(e);
             }
