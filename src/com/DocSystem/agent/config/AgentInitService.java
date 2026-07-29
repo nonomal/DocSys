@@ -77,4 +77,23 @@ public class AgentInitService {
         initialized = true;
         log.info("=== DocSysAgent 初始化完成 ===");
     }
+
+    /**
+     * 强制重建 Agent 数据库表(CREATE TABLE IF NOT EXISTS，幂等)。
+     * 供 DocSys 管理后台 resetDatabase 在删表后调用 —— 重置会 DROP 掉 Agent 表,
+     * 需立即按当前 schema 重建,避免用户重置后不重启就使用 Agent 时表不存在报错。
+     * 不受 initAfterDocSysReady 的一次性标志约束。
+     */
+    public void rebuildTables() {
+        if (databaseInitializer == null) {
+            log.warn("DatabaseInitializer 未注入，跳过 Agent 表重建");
+            return;
+        }
+        try {
+            log.info("=== DocSysAgent 重建数据库表（由 resetDatabase 触发）===");
+            databaseInitializer.init();
+        } catch (Exception e) {
+            log.error("Agent 数据库表重建失败（不影响 DocSys）: {}", e.getMessage(), e);
+        }
+    }
 }
