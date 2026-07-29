@@ -730,6 +730,12 @@ public class MainAgent {
                             llmResult.getConfidence(), llmResult.getReasoning());
                     String subTask = llmResult.getSubTaskType();
                     if (subTask != null && !subTask.isEmpty()) {
+                        // chat 子任务需要 message 参数(handleChat 读 params.get("message"))；
+                        // LLM 抽取的 entities 里通常没有 message，这里补上原始 query，
+                        // 否则 chat 会因 message 为空而报 "Usage: chat <message>"。
+                        if ("chat".equals(subTask) && !llmParams.containsKey("message")) {
+                            llmParams.put("message", userQuery);
+                        }
                         decomposition.addSubTask(new SubTask(subTask,
                                 "LLM: " + llmResult.getIntent(), llmParams));
                     } else {

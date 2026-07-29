@@ -437,10 +437,23 @@ public class AgentController {
      */
     @GetMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter stream(
-            @RequestParam(name = "command") String command,
+            @RequestParam(name = "command") String commandRaw,
             @RequestParam(name = "sessionId", required = false) String sessionId,
             HttpServletRequest request,
             HttpServletResponse response) {
+
+        // GET query 参数的中文修复：Tomcat 默认按 ISO-8859-1 解码 URL query（未配 URIEncoding=UTF-8），
+        // 与 DocSystem 一致地重解码为 UTF-8（见 BaseFunction/DocController 的同类处理）。
+        // command 为 effectively-final 供后续 SSE lambda 引用。
+        String decoded = commandRaw;
+        if (commandRaw != null) {
+            try {
+                decoded = new String(commandRaw.getBytes("ISO8859-1"), "UTF-8");
+            } catch (java.io.UnsupportedEncodingException e) {
+                // 保底：编码不支持时用原值
+            }
+        }
+        final String command = decoded;
 
         // Prevent browser buffering for real-time streaming
         response.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");

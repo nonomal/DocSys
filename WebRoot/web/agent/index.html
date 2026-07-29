@@ -2470,15 +2470,20 @@
             html += '<span class="message-sender">' + (msg.role === 'user' ? '用户' : 'AI 助手') + '</span>';
             html += '<span class="message-time">' + msg.time + '</span>';
             html += '</div>';
-            if (msg.isGenerating) {
+            if (msg.isGenerating && (!msg.content || msg.content.length === 0)) {
+                // 尚无内容：显示"正在思考"
                 html += '<div class="message-body"><span class="generating-indicator">AI 正在思考</span><span class="typing-cursor"></span></div>';
             } else if (msg.isUploadProgress) {
                 // System-generated upload progress: render HTML directly (no user input)
                 html += '<div class="message-body">' + msg.content + '</div>';
             } else {
                 // Smart content rendering for AI responses (JSON/MD/Mermaid/SVG/HTML)
-                // User messages always escaped
-                html += '<div class="message-body">' + renderContent(msg.content, msg.role) + '</div>';
+                // User messages always escaped. 生成中且已有内容：正常渲染内容 + 光标（边生成边显示）
+                html += '<div class="message-body">' + renderContent(msg.content, msg.role);
+                if (msg.isGenerating) {
+                    html += '<span class="typing-cursor"></span>';
+                }
+                html += '</div>';
             }
             if (msg.isRelogin) {
                 html += '<div class="relogin-prompt"><p>请重新登录以继续使用</p><button onclick="showLoginScreen()">重新登录</button></div>';
@@ -2662,6 +2667,7 @@
                                 content: event.fullContent || fullContent,
                                 time: formatTime()
                             };
+                            renderMessages();
                         } else if (event.type === 'error') {
                             streamError = event.message;
                             if (handleAuthError(event.message)) { isSessionExpired = true; return; }

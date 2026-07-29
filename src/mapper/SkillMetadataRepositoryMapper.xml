@@ -42,6 +42,10 @@
         WHERE id = #{id}
     </update>
 
+    <select id="findAll" resultMap="SkillMetadataResultMap">
+        SELECT * FROM skill_metadata ORDER BY created_at DESC
+    </select>
+
     <select id="findBySkillId" resultMap="SkillMetadataResultMap">
         SELECT * FROM skill_metadata WHERE skill_id = #{skillId}
     </select>

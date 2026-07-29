@@ -206,6 +206,8 @@ public class LLMService {
      * Chat with LLM
      */
     public String chat(String message, String sessionId) throws IOException {
+        // 每次对话前从 DocSystem 现取当前模型（默认第一个），再用刷新后的 defaultModel
+        refreshFromSystemConfig(null);
         return chat(message, sessionId, defaultModel);
     }
 
@@ -338,6 +340,8 @@ public class LLMService {
      */
     public boolean isAvailable() {
         try {
+            // 现取当前模型配置，确保可用性检查针对的是 DocSystem 实际配置的模型
+            refreshFromSystemConfig(null);
             // Probe the actual chat endpoint with a minimal request — this works for both
             // OpenAI-compatible (bigmodel.cn, deepseek, etc.) and Ollama.
             String chatPath = openAiCompatible
@@ -392,6 +396,42 @@ public class LLMService {
         if (apiKey != null && !apiKey.trim().isEmpty()) {
             this.apiKey = apiKey;
         }
+        // 重新检测 endpoint 格式（OpenAI 兼容 vs Ollama），否则切换 endpoint 后路径判断仍用旧值
+        this.openAiCompatible = endpoint != null && (
+            endpoint.contains("openai.com") ||
+            endpoint.contains("bigmodel.cn") ||
+            endpoint.contains("deepseek.com") ||
+            endpoint.contains("/v1/") ||
+            endpoint.contains("/v4/") ||
+            endpoint.endsWith("/v1") ||
+            endpoint.endsWith("/v4"));
+    }
+
+    /**
+     * 每次对话/可用性检查前，从 DocSystem 的内存配置 {@code BaseFunction.systemLLMConfig}
+     * 现取当前模型（默认第一个），覆盖本 Service 的 endpoint/model/apiKey。
+     *
+     * <p>这与 DocSystem AIChat 的理念一致：模型在“使用时”确定，支持多模型；DocSystem 未配置
+     * 或配置不可用时不做兜底（不再 fallback 到 Ollama 默认 localhost:11434），保持原字段值，
+     * 让后续真实请求自然报错，由上层正确显示——配置错误/模型不可用是正常情况，报错即可。
+     *
+     * @param llmIndex 用户选择的模型序号（null 表示默认第一个）
+     */
+    private void refreshFromSystemConfig(Integer llmIndex) {
+        try {
+            com.DocSystem.common.entity.SystemLLMConfig cfg =
+                com.DocSystem.common.BaseFunction.systemLLMConfig;
+            if (cfg == null || !cfg.enabled
+                    || cfg.llmConfigList == null || cfg.llmConfigList.isEmpty()) {
+                return; // DocSystem 未配置可用 LLM：不覆盖，交由真实请求报错
+            }
+            int idx = (llmIndex != null && llmIndex >= 0 && llmIndex < cfg.llmConfigList.size())
+                ? llmIndex : 0;
+            com.DocSystem.common.entity.LLMConfig m = cfg.llmConfigList.get(idx);
+            applyConfig(m.url, m.modelName, m.apikey);
+        } catch (Exception e) {
+            log.warn("refreshFromSystemConfig failed (ignored, will use existing config): {}", e.getMessage());
+        }
     }
 
     /**
@@ -434,6 +474,8 @@ public class LLMService {
      */
     // Note: @CircuitBreaker and @Retry annotations removed for Spring 4 compatibility
     public Iterator<String> streamChat(String message, String sessionId) throws IOException {
+        // 每次流式对话前从 DocSystem 现取当前模型
+        refreshFromSystemConfig(null);
         return streamChat(message, sessionId, defaultModel);
     }
 
