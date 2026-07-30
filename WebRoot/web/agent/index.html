@@ -651,7 +651,43 @@
         .dialog-overlay.active {
             display: flex;
         }
-        
+
+        .model-picker {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .model-picker #modelSelect {
+            max-width: 200px;
+            padding: 3px 8px;
+            font-size: 12px;
+            border: 1px solid #d0d0d0;
+            border-radius: 6px;
+            background: #fff;
+            color: #333;
+            cursor: pointer;
+        }
+        .model-manage-btn {
+            padding: 3px 8px;
+            font-size: 12px;
+            border: 1px solid #d0d0d0;
+            border-radius: 6px;
+            background: #f5f5f5;
+            color: #555;
+            cursor: pointer;
+        }
+        .model-manage-btn:hover { background: #ececec; }
+        .model-mgr-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 0;
+            border-bottom: 1px solid #f0f0f0;
+        }
+        .model-mgr-info { display: flex; flex-direction: column; gap: 2px; }
+        .model-mgr-info span { font-size: 12px; color: #999; }
+        .model-mgr-actions { display: flex; gap: 8px; }
+
         .dialog {
             background: #fff;
             border-radius: 4px;
@@ -1562,9 +1598,12 @@
                     </div>
                     <div class="input-bottom-bar">
                         <div class="input-shortcuts">
+                            <span class="model-picker">
+                                <select id="modelSelect" title="选择大模型"></select>
+                                <button class="model-manage-btn" id="manageModelsBtn" title="管理我的自定义模型">⚙ 模型</button>
+                            </span>
                             <span class="input-shortcut"><kbd>Enter</kbd> 发送</span>
                             <span class="input-shortcut"><kbd>Shift</kbd>+<kbd>Enter</kbd> 换行</span>
-                            <span class="input-shortcut"><kbd>↑</kbd>/<kbd>↓</kbd> 历史</span>
                             <span class="input-shortcut"><kbd>Tab</kbd> 补全</span>
                         </div>
                         <span class="char-counter" id="charCounter">0 / 4000</span>
@@ -1572,6 +1611,35 @@
                 </div>
             </div>
         </main>
+    </div>
+
+    <!-- Model Manager Dialog -->
+    <div class="dialog-overlay" id="modelDialog">
+        <div class="dialog">
+            <div class="dialog-header">
+                <span class="dialog-title">我的自定义模型</span>
+                <button class="dialog-close" data-close>&times;</button>
+            </div>
+            <div class="dialog-body">
+                <div id="modelMgrList"></div>
+                <div id="modelForm" style="display:none; margin-top:12px; border-top:1px solid #eee; padding-top:12px;">
+                    <h4 id="modelFormTitle" style="margin-bottom:12px; font-size:13px; color:#555;">新增模型</h4>
+                    <input type="hidden" id="mfId">
+                    <div class="form-row"><label>名称</label><input type="text" id="mfName" placeholder="例如 我的 GPT-4o"></div>
+                    <div class="form-row"><label>模型标识</label><input type="text" id="mfModelName" placeholder="例如 gpt-4o / qwen2.5:7b"></div>
+                    <div class="form-row"><label>接口地址</label><input type="text" id="mfEndpoint" placeholder="例如 https://api.openai.com 或 http://localhost:11434"></div>
+                    <div class="form-row"><label>API Key</label><input type="password" id="mfApiKey" placeholder="sk-..."></div>
+                    <div class="form-row" style="flex-direction:row; gap:10px; justify-content:flex-end;">
+                        <button class="btn btn-secondary" id="mfCancelBtn">取消</button>
+                        <button class="btn btn-primary" id="mfSaveBtn">保存</button>
+                    </div>
+                </div>
+            </div>
+            <div class="dialog-footer">
+                <button class="btn btn-secondary" data-close>关闭</button>
+                <button class="btn btn-primary" id="addModelBtn">新增模型</button>
+            </div>
+        </div>
     </div>
 
     <!-- Toast Container -->
@@ -1669,18 +1737,6 @@
                             <option value="light">浅色</option>
                         </select>
                     </div>
-                    <div class="form-row">
-                        <label>LLM 模型</label>
-                        <input type="text" id="llmModel" value="qwen2.5:7b">
-                    </div>
-                    <div class="form-row">
-                        <label>API Endpoint</label>
-                        <input type="text" id="llmEndpoint" value="http://localhost:11434">
-                    </div>
-                    <div class="form-row">
-                        <label>API Key (可选)</label>
-                        <input type="password" id="llmApiKey" placeholder="sk-...">
-                    </div>
                     <hr style="border: none; border-top: 1px solid #eee; margin: 12px 0;">
                     <h4 style="margin-bottom: 12px; color: #555; font-size: 13px;">Soul 进化控制</h4>
                     <div class="form-row">
@@ -1760,9 +1816,6 @@
         pendingRepoFiles: {}, // { repoName: [files] }
         settings: {
             theme: 'light',
-            llmModel: 'qwen2.5:7b',
-            llmEndpoint: 'http://localhost:11434',
-            llmApiKey: '',
             autoLearn: true,
             healthCheckInterval: 60
         },
@@ -1770,7 +1823,9 @@
         isGenerating: false,      // AI is generating response
         pendingMessages: [],      // Queued messages during generation
         abortController: null,    // AbortController for cancellation
-        autocompleteIndex: -1
+        autocompleteIndex: -1,
+        selectedModelId: null,    // 用户选中的大模型(空=系统默认第一个)
+        availableModels: []       // 系统模型 + 用户自定义模型
     };
 
     // Load settings from localStorage
@@ -1796,12 +1851,6 @@
         setTimeout(function() {
             var themeSel = document.getElementById('themeSelect');
             if (themeSel) themeSel.value = state.settings.theme;
-            var llmModel = document.getElementById('llmModel');
-            if (llmModel) llmModel.value = state.settings.llmModel || 'qwen2.5:7b';
-            var llmEndpoint = document.getElementById('llmEndpoint');
-            if (llmEndpoint) llmEndpoint.value = state.settings.llmEndpoint || 'http://localhost:11434';
-            var llmApiKey = document.getElementById('llmApiKey');
-            if (llmApiKey) llmApiKey.value = state.settings.llmApiKey || '';
             var autoLearn = document.getElementById('autoLearn');
             if (autoLearn) autoLearn.value = state.settings.autoLearn ? 'true' : 'false';
             var healthInterval = document.getElementById('healthCheckInterval');
@@ -1875,6 +1924,41 @@
                 return res.ok;
             } catch (e) { console.warn('Clear alerts failed:', e); }
             return false;
+        },
+
+        // ==================== LLM 模型 ====================
+        async listModels() {
+            try {
+                const res = await fetch(API_BASE + '/models/list', { credentials: 'same-origin' });
+                const ret = await res.json();
+                if (ret && ret.success && ret.data) return ret.data;
+            } catch (e) { console.warn('listModels failed:', e); }
+            return null;
+        },
+        async createModel(body) {
+            const res = await fetch(API_BASE + '/models/custom', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'same-origin',
+                body: JSON.stringify(body)
+            });
+            return res.json();
+        },
+        async updateModel(id, body) {
+            const res = await fetch(API_BASE + '/models/custom/' + encodeURIComponent(id), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'same-origin',
+                body: JSON.stringify(body)
+            });
+            return res.json();
+        },
+        async deleteModel(id) {
+            const res = await fetch(API_BASE + '/models/custom/' + encodeURIComponent(id), {
+                method: 'DELETE',
+                credentials: 'same-origin'
+            });
+            return res.json();
         }
     };
 
@@ -2613,6 +2697,7 @@
         try {
             var url = API_BASE + '/stream?command=' + encodeURIComponent(content);
             if (state.sessionId) url += '&sessionId=' + encodeURIComponent(state.sessionId);
+            if (state.selectedModelId) url += '&modelId=' + encodeURIComponent(state.selectedModelId);
 
             var response = await fetch(url, {
                 headers: { 'Accept': 'text/event-stream' },
@@ -3440,9 +3525,6 @@
     document.getElementById('saveSettingsBtn').addEventListener('click', function() {
         var newTheme = document.getElementById('themeSelect').value;
         state.settings.theme = newTheme;
-        state.settings.llmModel = document.getElementById('llmModel').value;
-        state.settings.llmEndpoint = document.getElementById('llmEndpoint').value;
-        state.settings.llmApiKey = document.getElementById('llmApiKey').value;
         state.settings.autoLearn = document.getElementById('autoLearn').value === 'true';
         state.settings.healthCheckInterval = parseInt(document.getElementById('healthCheckInterval').value);
 
@@ -3525,7 +3607,153 @@
         renderMessages();
         updateSendButton();
         refreshSoulData();
+        loadModels();
     }
+
+    // ==================== 模型选择 ====================
+    async function loadModels() {
+        var data = await API.listModels();
+        if (!data) return;
+        var sys = (data.systemModels || []).slice();
+        var usr = (data.userModels || []).slice();
+        state.availableModels = sys.concat(usr);
+        // 恢复上次选择；否则用后端默认(系统第一个)
+        var saved = null;
+        try { saved = localStorage.getItem('docsys_model'); } catch (e) {}
+        var valid = state.availableModels.some(function(m) { return m.selector === saved; });
+        state.selectedModelId = valid ? saved : (data.defaultSelector || null);
+        renderModelSelect();
+    }
+
+    function renderModelSelect() {
+        var sel = document.getElementById('modelSelect');
+        if (!sel) return;
+        sel.innerHTML = '';
+        var sys = state.availableModels.filter(function(m) { return m.system; });
+        var usr = state.availableModels.filter(function(m) { return !m.system; });
+        function addGroup(label, arr) {
+            if (!arr.length) return;
+            var og = document.createElement('optgroup');
+            og.label = label;
+            arr.forEach(function(m) {
+                var o = document.createElement('option');
+                o.value = m.selector;
+                o.textContent = m.name;
+                if (m.selector === state.selectedModelId) o.selected = true;
+                og.appendChild(o);
+            });
+            sel.appendChild(og);
+        }
+        addGroup('系统模型', sys);
+        addGroup('我的模型', usr);
+        if (!state.availableModels.length) {
+            var o = document.createElement('option');
+            o.textContent = '无可用模型';
+            o.disabled = true;
+            sel.appendChild(o);
+        }
+    }
+
+    // 绑定选择变更 + 打开管理弹窗
+    (function bindModelPicker() {
+        var sel = document.getElementById('modelSelect');
+        if (sel) sel.addEventListener('change', function() {
+            state.selectedModelId = sel.value;
+            try { localStorage.setItem('docsys_model', sel.value); } catch (e) {}
+        });
+        var mBtn = document.getElementById('manageModelsBtn');
+        if (mBtn) mBtn.addEventListener('click', openModelManager);
+    })();
+
+    function openModelManager() {
+        renderModelManager();
+        var dlg = document.getElementById('modelDialog');
+        if (dlg) dlg.classList.add('active');
+    }
+
+    function renderModelManager() {
+        var list = document.getElementById('modelMgrList');
+        if (!list) return;
+        var usr = state.availableModels.filter(function(m) { return !m.system; });
+        if (!usr.length) {
+            list.innerHTML = '<div style="color:#999;padding:12px 0;">还没有自定义模型，点击下方“新增模型”。</div>';
+            return;
+        }
+        list.innerHTML = usr.map(function(m) {
+            return '<div class="model-mgr-item" data-id="' + m.id + '">' +
+                '<div class="model-mgr-info"><strong>' + escapeHtml(m.name) + '</strong>' +
+                '<span>' + escapeHtml(m.modelName || '') + ' · ' + escapeHtml(m.endpoint || '') + '</span></div>' +
+                '<div class="model-mgr-actions">' +
+                '<button class="btn btn-secondary model-edit" data-id="' + m.id + '">编辑</button>' +
+                '<button class="btn btn-secondary model-del" data-id="' + m.id + '">删除</button>' +
+                '</div></div>';
+        }).join('');
+        list.querySelectorAll('.model-edit').forEach(function(b) {
+            b.addEventListener('click', function() { showModelForm(b.getAttribute('data-id')); });
+        });
+        list.querySelectorAll('.model-del').forEach(function(b) {
+            b.addEventListener('click', function() { deleteModel(b.getAttribute('data-id')); });
+        });
+    }
+
+    function showModelForm(id) {
+        var form = document.getElementById('modelForm');
+        if (!form) return;
+        var m = id ? state.availableModels.filter(function(x){return String(x.id)===String(id);})[0] : null;
+        document.getElementById('mfId').value = m ? m.id : '';
+        document.getElementById('mfName').value = m ? m.name : '';
+        document.getElementById('mfModelName').value = m ? (m.modelName || '') : '';
+        document.getElementById('mfEndpoint').value = m ? (m.endpoint || '') : '';
+        document.getElementById('mfApiKey').value = '';
+        document.getElementById('mfApiKey').placeholder = m ? '留空则保留原 Key' : 'sk-...';
+        document.getElementById('modelFormTitle').textContent = m ? '编辑模型' : '新增模型';
+        form.style.display = 'block';
+    }
+
+    async function submitModelForm() {
+        var id = document.getElementById('mfId').value;
+        var body = {
+            name: document.getElementById('mfName').value.trim(),
+            modelName: document.getElementById('mfModelName').value.trim(),
+            endpoint: document.getElementById('mfEndpoint').value.trim(),
+            apiKey: document.getElementById('mfApiKey').value
+        };
+        if (!body.name || !body.modelName || !body.endpoint) {
+            showMessage('名称、模型标识、接口地址均为必填', 'error');
+            return;
+        }
+        var ret = id ? await API.updateModel(id, body) : await API.createModel(body);
+        if (ret && ret.success) {
+            showMessage(id ? '模型已更新' : '模型已添加', 'success');
+            document.getElementById('modelForm').style.display = 'none';
+            await loadModels();
+            renderModelManager();
+        } else {
+            showMessage((ret && ret.message) || '操作失败', 'error');
+        }
+    }
+
+    async function deleteModel(id) {
+        var ret = await API.deleteModel(id);
+        if (ret && ret.success) {
+            showMessage('模型已删除', 'success');
+            await loadModels();
+            renderModelManager();
+        } else {
+            showMessage((ret && ret.message) || '删除失败', 'error');
+        }
+    }
+
+    (function bindModelDialog() {
+        var add = document.getElementById('addModelBtn');
+        if (add) add.addEventListener('click', function() { showModelForm(null); });
+        var save = document.getElementById('mfSaveBtn');
+        if (save) save.addEventListener('click', submitModelForm);
+        var cancel = document.getElementById('mfCancelBtn');
+        if (cancel) cancel.addEventListener('click', function() {
+            document.getElementById('modelForm').style.display = 'none';
+        });
+    })();
 
     async function checkDocSysLogin() {
         // 合并进 DocSystem 后不在前端做登录拦截：页面照常进入。

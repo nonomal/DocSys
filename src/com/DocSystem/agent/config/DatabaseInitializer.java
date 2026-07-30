@@ -41,7 +41,8 @@ public class DatabaseInitializer {
         "shared_knowledge",
         "collaborative_recommendations",
         "skill_ratings",
-        "similar_users_cache"
+        "similar_users_cache",
+        "user_custom_llm_models"
     };
 
     /** CREATE TABLE statements (MariaDB 10.1 compatible with LONGTEXT) */
@@ -259,7 +260,23 @@ public class DatabaseInitializer {
             + "UNIQUE KEY uk_user_similar (user_id, similar_user_id),"
             + "INDEX idx_user_similarity (user_id, similarity_score DESC),"
             + "INDEX idx_computed (computed_at)"
-            + ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='相似用户缓存'"
+            + ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='相似用户缓存'",
+
+        // user_custom_llm_models
+        "CREATE TABLE IF NOT EXISTS user_custom_llm_models ("
+            + "id BIGINT PRIMARY KEY AUTO_INCREMENT,"
+            + "user_id VARCHAR(64) NOT NULL COMMENT '所属用户(owner=login user name)',"
+            + "tenant_id VARCHAR(64),"
+            + "name VARCHAR(128) NOT NULL COMMENT '模型显示名',"
+            + "model_name VARCHAR(128) NOT NULL COMMENT 'LLM modelName',"
+            + "endpoint VARCHAR(512) NOT NULL COMMENT 'API endpoint URL',"
+            + "api_key VARCHAR(512) COMMENT 'API key (明文, 与系统配置一致)',"
+            + "settings LONGTEXT COMMENT '额外配置(JSON)',"
+            + "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,"
+            + "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,"
+            + "INDEX idx_user (user_id),"
+            + "INDEX idx_tenant (tenant_id)"
+            + ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户自定义LLM模型表'"
     };
 
     /**
@@ -449,6 +466,20 @@ public class DatabaseInitializer {
             + "computed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,"
             + "expires_at TIMESTAMP,"
             + "UNIQUE (user_id, similar_user_id)"
+            + ")",
+
+        // user_custom_llm_models
+        "CREATE TABLE IF NOT EXISTS user_custom_llm_models ("
+            + "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+            + "user_id VARCHAR(64) NOT NULL,"
+            + "tenant_id VARCHAR(64),"
+            + "name VARCHAR(128) NOT NULL,"
+            + "model_name VARCHAR(128) NOT NULL,"
+            + "endpoint VARCHAR(512) NOT NULL,"
+            + "api_key VARCHAR(512),"
+            + "settings TEXT,"
+            + "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,"
+            + "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
             + ")"
     };
 
@@ -512,7 +543,10 @@ public class DatabaseInitializer {
         "CREATE INDEX IF NOT EXISTS skill_ratings_idx_user ON skill_ratings (user_id)",
         // similar_users_cache
         "CREATE INDEX IF NOT EXISTS similar_users_cache_idx_user_similarity ON similar_users_cache (user_id, similarity_score DESC)",
-        "CREATE INDEX IF NOT EXISTS similar_users_cache_idx_computed ON similar_users_cache (computed_at)"
+        "CREATE INDEX IF NOT EXISTS similar_users_cache_idx_computed ON similar_users_cache (computed_at)",
+        // user_custom_llm_models
+        "CREATE INDEX IF NOT EXISTS user_custom_llm_models_idx_user ON user_custom_llm_models (user_id)",
+        "CREATE INDEX IF NOT EXISTS user_custom_llm_models_idx_tenant ON user_custom_llm_models (tenant_id)"
     };
 
     /**

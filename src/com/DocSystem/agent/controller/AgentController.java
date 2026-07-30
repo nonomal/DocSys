@@ -84,6 +84,9 @@ public class AgentController {
     @Autowired(required = false)
     private LLMService llmService;
 
+    @Autowired(required = false)
+    private com.DocSystem.agent.llm.UserLlmModelService userLlmModelService;
+
     @Autowired
     private AgentMetrics agentMetrics;
 
@@ -334,6 +337,105 @@ public class AgentController {
         return AgentResponse.ok(data);
     }
 
+    // ==================== LLM 模型列表 / 用户自定义模型 CRUD ====================
+
+    /**
+     * 列出当前用户可用的模型：系统模型（所有人可见，selector=sys:idx）+ 该用户自定义模型（selector=user:id）。
+     * 不回传任何 apiKey。
+     */
+    @GetMapping("/models/list")
+    public AgentResponse listModels(HttpServletRequest request) {
+        User user = currentUser(request);
+        if (user == null) {
+            return AgentResponse.error("NOT_LOGGED_IN");
+        }
+        String userId = user.getName() != null ? user.getName() : "anonymous";
+
+        List<Map<String, Object>> systemModels = new ArrayList<>();
+        com.DocSystem.common.entity.SystemLLMConfig sysCfg = com.DocSystem.common.BaseFunction.systemLLMConfig;
+        if (sysCfg != null && sysCfg.enabled && sysCfg.llmConfigList != null) {
+            for (int i = 0; i < sysCfg.llmConfigList.size(); i++) {
+                com.DocSystem.common.entity.LLMConfig c = sysCfg.llmConfigList.get(i);
+                Map<String, Object> m = new HashMap<>();
+                m.put("selector", "sys:" + i);
+                m.put("name", c.name != null && !c.name.isEmpty() ? c.name : c.modelName);
+                m.put("modelName", c.modelName);
+                m.put("system", true);
+                systemModels.add(m);
+            }
+        }
+
+        List<Map<String, Object>> userModels = new ArrayList<>();
+        if (userLlmModelService != null) {
+            for (com.DocSystem.agent.learning.entity.UserCustomLlmModel m : userLlmModelService.listForUser(userId)) {
+                Map<String, Object> mm = new HashMap<>();
+                mm.put("selector", "user:" + m.getId());
+                mm.put("id", m.getId());
+                mm.put("name", m.getName());
+                mm.put("modelName", m.getModelName());
+                mm.put("endpoint", m.getEndpoint());
+                mm.put("system", false);
+                userModels.add(mm);
+            }
+        }
+
+        Map<String, Object> data = new HashMap<>();
+        data.put("systemModels", systemModels);
+        data.put("userModels", userModels);
+        data.put("defaultSelector", systemModels.isEmpty() ? null : "sys:0");
+        return AgentResponse.ok(data);
+    }
+
+    /** 新增用户自定义模型。Body: {name, modelName, endpoint, apiKey, settings?} */
+    @PostMapping("/models/custom")
+    public AgentResponse createCustomModel(@RequestBody Map<String, String> body, HttpServletRequest request) {
+        User user = currentUser(request);
+        if (user == null) return AgentResponse.error("NOT_LOGGED_IN");
+        if (userLlmModelService == null) return AgentResponse.error("UserLlmModelService not available");
+        String userId = user.getName() != null ? user.getName() : "anonymous";
+        String name = body.get("name");
+        String modelName = body.get("modelName");
+        String endpoint = body.get("endpoint");
+        if (name == null || name.trim().isEmpty()) return AgentResponse.error("模型名称不能为空");
+        if (modelName == null || modelName.trim().isEmpty()) return AgentResponse.error("模型标识(modelName)不能为空");
+        if (endpoint == null || endpoint.trim().isEmpty()) return AgentResponse.error("接口地址(endpoint)不能为空");
+        String tenantId = null;
+        com.DocSystem.agent.learning.entity.UserCustomLlmModel m = userLlmModelService.create(
+                userId, tenantId, name.trim(), modelName.trim(), endpoint.trim(),
+                body.get("apiKey"), body.get("settings"));
+        if (m == null) return AgentResponse.error("创建失败");
+        Map<String, Object> data = new HashMap<>();
+        data.put("id", m.getId());
+        data.put("selector", "user:" + m.getId());
+        return AgentResponse.ok("模型已添加").withData(data);
+    }
+
+    /** 更新用户自定义模型。Body: {name, modelName, endpoint, apiKey?, settings?}；apiKey 留空则保留原值。 */
+    @PostMapping("/models/custom/{id}")
+    public AgentResponse updateCustomModel(@PathVariable("id") Long id,
+            @RequestBody Map<String, String> body, HttpServletRequest request) {
+        User user = currentUser(request);
+        if (user == null) return AgentResponse.error("NOT_LOGGED_IN");
+        if (userLlmModelService == null) return AgentResponse.error("UserLlmModelService not available");
+        String userId = user.getName() != null ? user.getName() : "anonymous";
+        com.DocSystem.agent.learning.entity.UserCustomLlmModel m = userLlmModelService.update(
+                id, userId, body.get("name"), body.get("modelName"), body.get("endpoint"),
+                body.get("apiKey"), body.get("settings"));
+        if (m == null) return AgentResponse.error("模型不存在或无权限");
+        return AgentResponse.ok("模型已更新");
+    }
+
+    /** 删除用户自定义模型。 */
+    @DeleteMapping("/models/custom/{id}")
+    public AgentResponse deleteCustomModel(@PathVariable("id") Long id, HttpServletRequest request) {
+        User user = currentUser(request);
+        if (user == null) return AgentResponse.error("NOT_LOGGED_IN");
+        if (userLlmModelService == null) return AgentResponse.error("UserLlmModelService not available");
+        String userId = user.getName() != null ? user.getName() : "anonymous";
+        boolean ok = userLlmModelService.delete(id, userId);
+        return ok ? AgentResponse.ok("模型已删除") : AgentResponse.error("模型不存在或无权限");
+    }
+
     /**
      * Confirm or reject a pending operation.
      * POST /api/agent/confirm
@@ -439,6 +541,7 @@ public class AgentController {
     public SseEmitter stream(
             @RequestParam(name = "command") String commandRaw,
             @RequestParam(name = "sessionId", required = false) String sessionId,
+            @RequestParam(name = "modelId", required = false) String modelId,
             HttpServletRequest request,
             HttpServletResponse response) {
 
@@ -491,6 +594,10 @@ public class AgentController {
         }
         final String capturedUsername = user.getName();
         final String capturedJsessionid = request.getSession().getId();
+        // 解析用户选定的模型（在请求线程内解析，后台线程仅用值）；解析器不访问 request
+        final String capturedUserId = user.getName() != null ? user.getName() : "anonymous";
+        final com.DocSystem.agent.llm.ResolvedLlmConfig resolvedLlm =
+                (userLlmModelService != null) ? userLlmModelService.resolve(modelId, capturedUserId) : null;
 
         log.info("SSE stream: command='{}', user={}, ip={}", command, capturedUsername, clientIp);
 
@@ -530,7 +637,9 @@ public class AgentController {
                     String effectiveSession = sessionId != null ? sessionId : "stream-" + System.currentTimeMillis();
                     StringBuilder fullContent = new StringBuilder();
 
-                    Iterator<String> chunks = llmService.streamChat(message, effectiveSession);
+                    Iterator<String> chunks = (resolvedLlm != null)
+                            ? llmService.streamChat(message, effectiveSession, resolvedLlm)
+                            : llmService.streamChat(message, effectiveSession);
                     while (chunks.hasNext()) {
                         String chunk = chunks.next();
                         if ("[DONE]".equals(chunk)) break;

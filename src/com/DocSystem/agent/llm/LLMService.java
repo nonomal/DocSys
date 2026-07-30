@@ -133,17 +133,25 @@ public class LLMService {
     }
 
     /**
+     * 判断 endpoint 是否为 OpenAI 兼容格式（vs Ollama 原生 /api/chat）。
+     * 抽为 static 供 {@link ResolvedLlmConfig} 与请求级路径复用，与 init() 内的探测规则保持一致。
+     */
+    public static boolean detectOpenAiCompatible(String ep) {
+        return ep != null && (
+            ep.contains("openai.com") ||
+            ep.contains("bigmodel.cn") ||
+            ep.contains("deepseek.com") ||
+            ep.contains("/v1/") ||
+            ep.contains("/v4/"));
+    }
+
+    /**
      * Execute LLM chat with a specific endpoint and model.
      * Extracted from chat() to support primary/backup switching.
      */
     private String doChat(String targetEndpoint, String targetModel,
-                          List<Map<String, String>> messages) throws IOException {
-        boolean targetOpenAi = targetEndpoint != null && (
-            targetEndpoint.contains("openai.com") ||
-            targetEndpoint.contains("bigmodel.cn") ||
-            targetEndpoint.contains("deepseek.com") ||
-            targetEndpoint.contains("/v1/") ||
-            targetEndpoint.contains("/v4/"));
+                          String targetApiKey, List<Map<String, String>> messages) throws IOException {
+        boolean targetOpenAi = detectOpenAiCompatible(targetEndpoint);
 
         Map<String, Object> requestBody = new HashMap<>();
         requestBody.put("model", targetModel);
@@ -162,12 +170,12 @@ public class LLMService {
                 .url(url)
                 .header("Content-Type", "application/json")
                 .post(RequestBody.create(JSON_MEDIA, json));
-        if (apiKey != null && !apiKey.isEmpty()) {
-            reqBuilder.header("Authorization", "Bearer " + apiKey);
+        if (targetApiKey != null && !targetApiKey.isEmpty()) {
+            reqBuilder.header("Authorization", "Bearer " + targetApiKey);
         }
         Request request = reqBuilder.build();
 
-        log.debug("LLM doChat: url={}, model={}, hasApiKey={}", url, targetModel, apiKey != null && !apiKey.isEmpty());
+        log.debug("LLM doChat: url={}, model={}, hasApiKey={}", url, targetModel, targetApiKey != null && !targetApiKey.isEmpty());
         Response response = httpClient.newCall(request).execute();
         String body = null;
         try {
@@ -244,7 +252,7 @@ public class LLMService {
             log.info("Primary LLM circuit breaker OPEN — switching to backup endpoint");
             String backupM = backupModel.isEmpty() ? defaultModel : backupModel;
             try {
-                String response = doChat(backupEndpoint, backupM, messages);
+                String response = doChat(backupEndpoint, backupM, apiKey, messages);
                 // Per D-08: Add to conversation history (preserved for next call)
                 Map<String, String> asstMsg = new HashMap<>();
                 asstMsg.put("role", "assistant");
@@ -259,7 +267,7 @@ public class LLMService {
         }
 
         // Primary LLM call
-        String response = doChat(endpoint, model, messages);
+        String response = doChat(endpoint, model, apiKey, messages);
         // Add to conversation history
         Map<String, String> asstMsg2 = new HashMap<>();
         asstMsg2.put("role", "assistant");
@@ -481,6 +489,16 @@ public class LLMService {
 
     // Note: @CircuitBreaker and @Retry annotations removed for Spring 4 compatibility
     public Iterator<String> streamChat(String message, String sessionId, String model) throws IOException {
+        // 向后兼容：用当前共享字段包装成 ResolvedLlmConfig
+        return streamChat(message, sessionId,
+                new ResolvedLlmConfig(endpoint, model, apiKey, defaultModel));
+    }
+
+    /**
+     * 无状态流式对话入口：目标 endpoint/model/apiKey 全部来自 {@link ResolvedLlmConfig} 参数，
+     * 作为局部变量传递，绝不写入共享字段 —— 因此并发请求各选各的模型互不干扰。
+     */
+    public Iterator<String> streamChat(String message, String sessionId, ResolvedLlmConfig resolved) throws IOException {
         List<String> chunks = new java.util.concurrent.CopyOnWriteArrayList<>();
 
         try {
@@ -499,21 +517,18 @@ public class LLMService {
             userMsg.put("content", message);
             messages.add(userMsg);
 
+            // 目标配置来自 resolved（请求级），全程局部变量，不写共享字段
+            String streamEndpoint = resolved.endpoint;
+            String streamModel = resolved.model;
+            String streamApiKey = resolved.apiKey;
+            boolean streamOpenAi = resolved.openAiCompatible;
             // Per D-07: Check circuit breaker state for primary/backup switching
-            String streamEndpoint = endpoint;
-            String streamModel = model;
-            boolean streamOpenAi = openAiCompatible;
             if (hasBackup && isPrimaryCircuitOpen()) {
                 log.info("Primary LLM circuit breaker OPEN for streaming — switching to backup");
                 streamEndpoint = backupEndpoint;
                 streamModel = backupModel.isEmpty() ? defaultModel : backupModel;
-                // Detect format for backup endpoint
-                streamOpenAi = streamEndpoint != null && (
-                    streamEndpoint.contains("openai.com") ||
-                    streamEndpoint.contains("bigmodel.cn") ||
-                    streamEndpoint.contains("deepseek.com") ||
-                    streamEndpoint.contains("/v1/") ||
-                    streamEndpoint.contains("/v4/"));
+                streamApiKey = apiKey;
+                streamOpenAi = detectOpenAiCompatible(streamEndpoint);
             }
 
             Map<String, Object> requestBody = new HashMap<>();
@@ -524,14 +539,17 @@ public class LLMService {
             requestBody.put("stream", true);
 
             String json = JSON.toJSONString(requestBody);
-            String url = streamOpenAi ? streamEndpoint + "/v4/chat/completions" : streamEndpoint + "/api/chat";
+            // Zhipu BigModel 用 /v4，OpenAI/DeepSeek 等兼容 API 用 /v1
+            String streamPath = (streamEndpoint != null && streamEndpoint.contains("bigmodel.cn"))
+                    ? "/v4/chat/completions" : "/v1/chat/completions";
+            String url = streamOpenAi ? streamEndpoint + streamPath : streamEndpoint + "/api/chat";
 
             Request.Builder reqBuilder = new Request.Builder()
                     .url(url)
                     .header("Content-Type", "application/json")
                     .post(RequestBody.create(JSON_MEDIA, json));
-            if (apiKey != null && !apiKey.isEmpty()) {
-                reqBuilder.header("Authorization", "Bearer " + apiKey);
+            if (streamApiKey != null && !streamApiKey.isEmpty()) {
+                reqBuilder.header("Authorization", "Bearer " + streamApiKey);
             }
             Request request = reqBuilder.build();
 
