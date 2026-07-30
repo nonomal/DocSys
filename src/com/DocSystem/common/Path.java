@@ -438,8 +438,20 @@ public class Path {
         	break;
         }
         return path;
-    }	
-	
+    }
+
+	//获取Agent技能存储路径（存放外部/默认/进化技能的skills目录）
+	//未配置时默认落在"仓库默认存储位置"下的 skills/ (如 C:/DocSysReposes/skills/)
+	public static String getAgentSkillStorePath(Integer OSType) {
+		String path = ReadProperties.read("docSysConfig.properties", "AgentSkillStorePath");
+		if(path != null && !path.isEmpty())
+		{
+			return Path.localDirPathFormat(path, OSType);
+		}
+		//未配置：回退到仓库默认存储位置下的 skills/
+		return getDefaultReposRootPath(OSType) + "skills/";
+	}
+
 	public static String getSaleDataStorePath(Integer OSType) {
     	String path = null;
     	path = ReadProperties.read("docSysConfig.properties", "SalesDataStorePath");

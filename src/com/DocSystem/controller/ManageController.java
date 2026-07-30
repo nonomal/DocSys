@@ -1223,6 +1223,7 @@ public class ManageController extends BaseController{
 			String defaultReposStorePath,
 			String systemLogStorePath,
 			String indexDBStorePath,
+			String agentSkillStorePath,
 			String salesDataStorePath,
 			String ldapConfig,
 			String allowedNetworkConfig,
@@ -1350,7 +1351,17 @@ public class ManageController extends BaseController{
 			indexDBStorePath = Path.localDirPathFormat(indexDBStorePath, OSType);
 			ReadProperties.setValue(tmpDocSystemConfigPath + configFileName, "DBStorePath", indexDBStorePath);
 		}
-		
+
+		if(agentSkillStorePath != null)
+		{
+			//留空表示清除配置，回退默认(仓库默认存储位置/skills/)；非空则规范化后写入
+			if(!agentSkillStorePath.isEmpty())
+			{
+				agentSkillStorePath = Path.localDirPathFormat(agentSkillStorePath, OSType);
+			}
+			ReadProperties.setValue(tmpDocSystemConfigPath + configFileName, "AgentSkillStorePath", agentSkillStorePath);
+		}
+
 		if(salesDataStorePath != null)
 		{
 			salesDataStorePath = Path.localDirPathFormat(salesDataStorePath, OSType);

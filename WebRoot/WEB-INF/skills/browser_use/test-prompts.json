@@ -1,0 +1,17 @@
+[
+  {
+    "id": 1,
+    "prompt": "find the cheapest flight from Beijing to Tokyo",
+    "expected": "AI autonomously browses the web and returns a structured or semi-structured result with flight price information. Includes a summary of steps taken and the actual cheapest flight found."
+  },
+  {
+    "id": 2,
+    "prompt": "帮我查一下从上海到深圳的火车票",
+    "expected": "Chinese-language browsing task executed successfully. Returns Chinese-language results with train schedules, prices, and times relevant to Shanghai-Shenzhen route."
+  },
+  {
+    "id": 3,
+    "prompt": "compare prices of MacBook Pro M3 across Amazon and BestBuy",
+    "expected": "AI navigates to both Amazon and BestBuy, extracts pricing for MacBook Pro M3 variants, and returns a comparison summary. Should cover at least 2 pages per site."
+  }
+]

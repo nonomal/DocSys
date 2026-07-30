@@ -31,18 +31,29 @@ public class SkillManager {
     private static SkillManager instance;
     
     private final Map<String, Skill> skills;
-    private final String skillsDirectory;
+    // 技能目录：默认按 user.dir 回退；DocSys 启动后由 AgentInitService 调用
+    // setSkillsDirectory() 指向配置的技能目录(Path.getAgentSkillStorePath)再 reload。
+    private String skillsDirectory;
     private boolean externalSkillsLoaded = false;
-    
+
     private SkillManager() {
         this.skills = new ConcurrentHashMap<>();
-        // Support multiple paths: external dir, classpath, default
+        // 初始默认值：DocSys 就绪前的回退。就绪后会被 setSkillsDirectory 覆盖。
         String userDir = System.getProperty("user.dir");
-        this.skillsDirectory = System.getProperty("docsys.skills.dir", 
+        this.skillsDirectory = System.getProperty("docsys.skills.dir",
             userDir + "/skills");
         loadBuiltInSkills();
         // Try to load external skills
         loadExternalSkills();
+    }
+
+    /**
+     * 设置技能目录并重新加载。由 AgentInitService 在 DocSys 就绪、默认技能拷贝完成后调用，
+     * 传入 Path.getAgentSkillStorePath 解析出的配置目录，使技能加载脱离 user.dir 隐式依赖。
+     */
+    public synchronized void setSkillsDirectory(String dir) {
+        this.skillsDirectory = dir;
+        reloadSkills();
     }
     
     public static synchronized SkillManager getInstance() {
@@ -171,25 +182,15 @@ public class SkillManager {
         }
         
         try {
-            // Try multiple possible paths
-            String[] paths = {
-                skillsDirectory,
-                "skills",
-                System.getProperty("user.dir") + "/../DocSysAgent/skills",
-                System.getProperty("user.dir") + "/../skills"
-            };
-            
-            for (String path : paths) {
-                if (path != null && Files.exists(Paths.get(path))) {
-                    loadSkillsFromDirectory(path);
-                    log.info("Loaded external skills from: {}", path);
-                    break;
-                }
+            // 单一真源：只从配置的技能目录加载(user.dir 回退或 AgentInitService 注入的配置目录)。
+            // 已移除历史的 ../DocSysAgent/skills 等硬编码候选路径。
+            if (skillsDirectory != null && Files.exists(Paths.get(skillsDirectory))) {
+                loadSkillsFromDirectory(skillsDirectory);
+                log.info("Loaded external skills from: {}", skillsDirectory);
+            } else {
+                log.info("Skills directory not present yet: {}", skillsDirectory);
             }
-            
-            // Also try classpath
-            loadSkillsFromClasspath();
-            
+
             externalSkillsLoaded = true;
         } catch (Exception e) {
             log.warn("Failed to load external skills: {}", e.getMessage());

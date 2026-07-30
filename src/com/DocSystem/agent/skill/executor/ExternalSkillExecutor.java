@@ -105,8 +105,11 @@ public class ExternalSkillExecutor implements SkillExecutor {
         "search_and_answer"
     ));
 
-    /** Base directory for external skills (from application.yml) */
-    private final Path skillsDir;
+    /** 注入的回退目录(application.yml，相对 user.dir)——DocSys 未就绪时使用 */
+    private final Path fallbackSkillsDir;
+
+    /** 解析后的技能目录缓存(优先 Path.getAgentSkillStorePath 配置目录) */
+    private volatile Path resolvedSkillsDir;
 
     /** Process timeout in seconds (from application.yml) */
     private final int skillTimeout;
@@ -124,13 +127,36 @@ public class ExternalSkillExecutor implements SkillExecutor {
             @Autowired(required = false) LLMService llmService,
             SkillScriptParser parser,
             @Autowired(required = false) SkillMetadataService skillMetadataService) {
-        this.skillsDir = Paths.get(skillsDirPath);
+        this.fallbackSkillsDir = Paths.get(skillsDirPath);
         this.skillTimeout = skillTimeout;
         this.llmService = llmService;
         this.parser = parser != null ? parser : new SkillScriptParser();
         this.skillMetadataService = skillMetadataService;
-        log.info("ExternalSkillExecutor initialized: skillsDir={}, timeout={}s, accessControl={}",
-            this.skillsDir, this.skillTimeout, this.skillMetadataService != null ? "enabled" : "disabled");
+        log.info("ExternalSkillExecutor initialized: fallbackSkillsDir={}, timeout={}s, accessControl={}",
+            this.fallbackSkillsDir, this.skillTimeout, this.skillMetadataService != null ? "enabled" : "disabled");
+    }
+
+    /**
+     * 解析技能目录：优先 DocSys 配置目录(Path.getAgentSkillStorePath)，
+     * 未就绪或异常时回退到注入的 fallbackSkillsDir(相对 user.dir)。
+     * 结果缓存，避免每次请求都读配置。
+     */
+    private Path skillsDir() {
+        Path r = resolvedSkillsDir;
+        if (r != null) {
+            return r;
+        }
+        try {
+            String cfg = com.DocSystem.common.Path.getAgentSkillStorePath(com.DocSystem.common.BaseFunction.OSType);
+            if (cfg != null && !cfg.isEmpty()) {
+                r = Paths.get(cfg);
+                resolvedSkillsDir = r;
+                return r;
+            }
+        } catch (Exception e) {
+            log.warn("解析 Agent 技能目录失败，回退默认: {}", e.getMessage());
+        }
+        return fallbackSkillsDir;
     }
 
     @Override
@@ -152,8 +178,9 @@ public class ExternalSkillExecutor implements SkillExecutor {
         Path skillDir;
         Path skillsDirReal;
         try {
-            skillDir = skillsDir.resolve(skillId).toRealPath();
-            skillsDirReal = skillsDir.toRealPath();
+            Path base = skillsDir();
+            skillDir = base.resolve(skillId).toRealPath();
+            skillsDirReal = base.toRealPath();
         } catch (IOException e) {
             return false;
         }
@@ -233,7 +260,7 @@ public class ExternalSkillExecutor implements SkillExecutor {
                 "This skill is private and can only be used by its creator.");
         }
 
-        Path skillDir = skillsDir.resolve(skillId);
+        Path skillDir = skillsDir().resolve(skillId);
         log.info("Executing external skill '{}' from {}", skillId, skillDir);
 
         // Strategy 1: Try Python script

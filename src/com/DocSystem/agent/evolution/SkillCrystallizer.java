@@ -35,9 +35,22 @@ public class SkillCrystallizer {
 
     private static final Logger log = LoggerFactory.getLogger(SkillCrystallizer.class);
 
-    // Directory where generated skills are stored
-    private static final String SKILLS_OUTPUT_PATH = "data/skills/";
+    // 进化结晶产物目录：解析为 <配置技能目录>/data/skills/，与执行读取(ExternalSkillExecutor)、
+    // EnhancedSkillManager.userSkillsDirectory 三者统一，使"不覆盖"保护落到同一处。
     private static final String SOP_INPUT_PATH = "data/evolution/sops/";
+
+    /** 解析结晶产物根目录(<配置技能目录>/data/skills/)，配置未就绪时回退相对路径 */
+    private String skillsOutputPath() {
+        try {
+            String cfg = com.DocSystem.common.Path.getAgentSkillStorePath(com.DocSystem.common.BaseFunction.OSType);
+            if (cfg != null && !cfg.isEmpty()) {
+                return cfg + "data/skills/";
+            }
+        } catch (Exception e) {
+            log.warn("解析结晶产物目录失败，回退默认: {}", e.getMessage());
+        }
+        return "data/skills/";
+    }
 
     // Configurable crystallization threshold
     private int crystallizationThreshold = 3;
@@ -60,14 +73,13 @@ public class SkillCrystallizer {
 
     @PostConstruct
     public void init() {
-        // Ensure output directories exist
+        // 仅创建 SOP 目录；结晶产物目录(<配置技能目录>/data/skills/)在写入时按需创建，
+        // 因为此 @PostConstruct 早于 DocSys 就绪，配置目录此刻可能尚未确定。
         try {
-            Files.createDirectories(Paths.get(SKILLS_OUTPUT_PATH));
             Files.createDirectories(Paths.get(SOP_INPUT_PATH));
-            log.info("SkillCrystallizer initialized. Threshold={}, SkillsOutput={}",
-                crystallizationThreshold, SKILLS_OUTPUT_PATH);
+            log.info("SkillCrystallizer initialized. Threshold={}", crystallizationThreshold);
         } catch (IOException e) {
-            log.error("Failed to create skills directories", e);
+            log.error("Failed to create SOP directory", e);
         }
     }
 
@@ -211,7 +223,7 @@ public class SkillCrystallizer {
      */
     private String writeSkillToDisk(String skillId, String content) {
         try {
-            Path skillDir = Paths.get(SKILLS_OUTPUT_PATH, skillId);
+            Path skillDir = Paths.get(skillsOutputPath(), skillId);
             Files.createDirectories(skillDir);
             Path skillFile = skillDir.resolve("SKILL.md");
             Files.write(skillFile, content.getBytes(StandardCharsets.UTF_8),
@@ -242,7 +254,7 @@ public class SkillCrystallizer {
      */
     private boolean isGeneratedSkill(String taskType) {
         String skillId = taskType.toLowerCase().replace(" ", "_").trim();
-        Path skillDir = Paths.get(SKILLS_OUTPUT_PATH, skillId);
+        Path skillDir = Paths.get(skillsOutputPath(), skillId);
         return Files.exists(skillDir);
     }
 

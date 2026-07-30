@@ -1,0 +1,17 @@
+[
+  {
+    "id": 1,
+    "prompt": "open https://example.com in browser and take a screenshot",
+    "expected": "Skill calls docsys playwright open https://example.com then docsys playwright screenshot, returns page loaded confirmation and screenshot saved confirmation."
+  },
+  {
+    "id": 2,
+    "prompt": "帮我截个图，当前页面",
+    "expected": "Skill calls docsys playwright screenshot without requiring a URL, returns screenshot saved confirmation with file path."
+  },
+  {
+    "id": 3,
+    "prompt": "打开百度，搜索 Claude AI，然后把结果截图",
+    "expected": "Skill chains operations correctly: opens baidu.com, fills search input with 'Claude AI', clicks submit button, then takes screenshot - returns results of each step clearly."
+  }
+]

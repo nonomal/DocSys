@@ -1,0 +1,12 @@
+[
+  {
+    "id": 1,
+    "prompt": "search the web for Claude AI features",
+    "expected": "Skill triggers and calls docsys web-search with the query. Returns a list of search results with titles, URLs, and brief descriptions. Default engine is baidu."
+  },
+  {
+    "id": 2,
+    "prompt": "百度搜索 人工智能发展趋势",
+    "expected": "Skill triggers (Chinese + baidu engine). Calls docsys web-search with the Chinese query and --engine baidu. Returns Chinese results list formatted clearly with titles and URLs."
+  }
+]

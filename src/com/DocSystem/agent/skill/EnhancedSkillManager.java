@@ -50,17 +50,19 @@ public class EnhancedSkillManager {
     private static EnhancedSkillManager instance;
     
     private final Map<String, EnhancedSkill> skills;
-    private final Path skillsDirectory;
-    private final Path userSkillsDirectory;
-    
+    // 技能目录：默认按 user.dir 回退；DocSys 就绪后由 AgentInitService 调用
+    // setSkillsDirectory() 指向配置目录再 reload。userSkillsDirectory 为进化产物目录(<配置>/data/skills)。
+    private Path skillsDirectory;
+    private Path userSkillsDirectory;
+
     private EnhancedSkillManager() {
         this.skills = new ConcurrentHashMap<>();
-        
-        // Initialize directories
+
+        // 初始默认值：DocSys 就绪前的回退。就绪后会被 setSkillsDirectory 覆盖。
         String userDir = System.getProperty("user.dir", ".");
         this.skillsDirectory = Paths.get(userDir, "skills");
         this.userSkillsDirectory = Paths.get(userDir, "data", "skills");
-        
+
         // Create directories
         try {
             Files.createDirectories(skillsDirectory);
@@ -68,11 +70,27 @@ public class EnhancedSkillManager {
         } catch (IOException e) {
             log.error("Failed to create skills directories", e);
         }
-        
+
         // Load skills
         loadBuiltInSkills();
         loadSkillsFromDirectory(skillsDirectory);
         loadSkillsFromDirectory(userSkillsDirectory);
+    }
+
+    /**
+     * 设置技能目录并重新加载。由 AgentInitService 在 DocSys 就绪后调用。
+     * skillsDirectory 指向配置的技能目录；userSkillsDirectory 为其下 data/skills(进化产物)。
+     */
+    public synchronized void setSkillsDirectory(String dir) {
+        this.skillsDirectory = Paths.get(dir);
+        this.userSkillsDirectory = Paths.get(dir, "data", "skills");
+        try {
+            Files.createDirectories(skillsDirectory);
+            Files.createDirectories(userSkillsDirectory);
+        } catch (IOException e) {
+            log.error("Failed to create skills directories", e);
+        }
+        reloadSkills();
     }
     
     public static synchronized EnhancedSkillManager getInstance() {

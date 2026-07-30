@@ -1207,7 +1207,8 @@ var systemInfo = {
 		defaultReposStorePath:"",
 		systemLogStorePath:"",
 		indexDBStorePath:"",
-		salesDataStorePath:"",			
+		agentSkillStorePath:"",
+		salesDataStorePath:"",
 		ldapConfig:"",	//LDAP Config
 		allowedNetworkConfig:"",	//allowedNetworkConfig
 		llmConfig:"",	//AI LLM Config
@@ -1231,6 +1232,7 @@ function enableSystemInfoSet(){
 	$("#defaultReposStorePath").val(systemInfo.defaultReposStorePath);
 	$("#systemLogStorePath").val(systemInfo.systemLogStorePath);
 	$("#indexDBStorePath").val(systemInfo.indexDBStorePath);
+	$("#agentSkillStorePath").val(systemInfo.agentSkillStorePath);
 	$("#salesDataStorePath").val(systemInfo.salesDataStorePath);
 	$("#ldapConfig").val(systemInfo.ldapConfig);
 	$("#allowedNetworkConfig").val(systemInfo.allowedNetworkConfig);
@@ -1245,6 +1247,7 @@ function enableSystemInfoSet(){
 	$("#defaultReposStorePath").attr('disabled',false);
 	$("#systemLogStorePath").attr('disabled',false);
 	$("#indexDBStorePath").attr('disabled',false);
+	$("#agentSkillStorePath").attr('disabled',false);
 	$("#salesDataStorePath").attr('disabled',false);
 	$("#ldapConfig").attr('disabled',false);
 	$("#allowedNetworkConfig").attr('disabled',false);
@@ -1279,6 +1282,7 @@ function cancelSystemInfoSet(){
 	$("#defaultReposStorePath").attr('disabled',true);
 	$("#systemLogStorePath").attr('disabled',true);
 	$("#indexDBStorePath").attr('disabled',true);
+	$("#agentSkillStorePath").attr('disabled',true);
 	$("#salesDataStorePath").attr('disabled',true);
 	$("#ldapConfig").attr('disabled',true);
 	$("#allowedNetworkConfig").attr('disabled',true);
@@ -1299,6 +1303,7 @@ function cancelSystemInfoSet(){
 	$("#defaultReposStorePath").val(systemInfo.defaultReposStorePath);
 	$("#systemLogStorePath").val(systemInfo.systemLogStorePath);
 	$("#indexDBStorePath").val(systemInfo.indexDBStorePath);
+	$("#agentSkillStorePath").val(systemInfo.agentSkillStorePath);
 	$("#salesDataStorePath").val(systemInfo.salesDataStorePath);
 	$("#ldapConfig").val(systemInfo.ldapConfig);
 	$("#allowedNetworkConfig").val(systemInfo.allowedNetworkConfig);
@@ -1349,6 +1354,7 @@ function saveSystemInfoSet(){
 	$("#defaultReposStorePath").attr('disabled',true);
 	$("#systemLogStorePath").attr('disabled',true);
 	$("#indexDBStorePath").attr('disabled',true);
+	$("#agentSkillStorePath").attr('disabled',true);
 	$("#salesDataStorePath").attr('disabled',true);
 			
 	$("#ldapConfig").attr('disabled',true);
@@ -1372,6 +1378,7 @@ function saveSystemInfoSet(){
 	var defaultReposStorePath = $("#defaultReposStorePath").val();
 	var systemLogStorePath = $("#systemLogStorePath").val();
 	var indexDBStorePath = $("#indexDBStorePath").val();
+	var agentSkillStorePath = $("#agentSkillStorePath").val();
 	var salesDataStorePath = $("#salesDataStorePath").val();
 	var ldapConfig = $("#ldapConfig").val();
 	var allowedNetworkConfig = $("#allowedNetworkConfig").val();
@@ -1401,6 +1408,7 @@ function saveSystemInfoSet(){
 			defaultReposStorePath,
 			systemLogStorePath, 
 			indexDBStorePath,
+			agentSkillStorePath,
 			salesDataStorePath,
 			ldapConfig, 
 			allowedNetworkConfig, 
@@ -1422,6 +1430,7 @@ function updateSystemInfo(tomcatPath,
 		defaultReposStorePath, 
 		systemLogStorePath, 
 		indexDBStorePath,
+		agentSkillStorePath,
 		salesDataStorePath,
 		ldapConfig, 
 		allowedNetworkConfig, 
@@ -1447,6 +1456,7 @@ function updateSystemInfo(tomcatPath,
         	defaultReposStorePath: defaultReposStorePath,
         	systemLogStorePath: systemLogStorePath,
         	indexDBStorePath: indexDBStorePath,
+        	agentSkillStorePath: agentSkillStorePath,
         	salesDataStorePath: salesDataStorePath,
         	ldapConfig: ldapConfig,
         	allowedNetworkConfig: allowedNetworkConfig,
@@ -1470,6 +1480,7 @@ function updateSystemInfo(tomcatPath,
         		systemInfo.defaultReposStorePath = defaultReposStorePath;
         		systemInfo.systemLogStorePath = systemLogStorePath;
         		systemInfo.indexDBStorePath = indexDBStorePath;
+        		systemInfo.agentSkillStorePath = agentSkillStorePath;
         		systemInfo.salesDataStorePath = salesDataStorePath;
         		systemInfo.ldapConfig = ldapConfig;
         		systemInfo.allowedNetworkConfig = allowedNetworkConfig;
@@ -1496,6 +1507,7 @@ function updateSystemInfo(tomcatPath,
         		$("#defaultReposStorePath").val(systemInfo.defaultReposStorePath);
         		$("#systemLogStorePath").val(systemInfo.systemLogStorePath);
         		$("#indexDBStorePath").val(systemInfo.indexDBStorePath);
+        		$("#agentSkillStorePath").val(systemInfo.agentSkillStorePath);
         		$("#salesDataStorePath").val(systemInfo.salesDataStorePath);
         		$("#ldapConfig").val(systemInfo.ldapConfig);
         		$("#allowedNetworkConfig").val(systemInfo.allowedNetworkConfig);
@@ -1541,6 +1553,7 @@ function updateSystemInfo(tomcatPath,
     		$("#defaultReposStorePath").val(systemInfo.defaultReposStorePath);
     		$("#systemLogStorePath").val(systemInfo.systemLogStorePath);
     		$("#indexDBStorePath").val(systemInfo.indexDBStorePath);
+    		$("#agentSkillStorePath").val(systemInfo.agentSkillStorePath);
     		$("#salesDataStorePath").val(systemInfo.salesDataStorePath);
     		$("#ldapConfig").val(systemInfo.ldapConfig);
     		$("#allowedNetworkConfig").val(systemInfo.allowedNetworkConfig);

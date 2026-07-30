@@ -1,9 +1,17 @@
 package com.DocSystem.agent.config;
 
+import java.io.File;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
+
+import com.DocSystem.common.BaseFunction;
+import com.DocSystem.common.FileUtil;
+import com.DocSystem.common.Path;
+import com.DocSystem.agent.skill.SkillManager;
+import com.DocSystem.agent.skill.EnhancedSkillManager;
 
 /**
  * Agent 初始化协调器 —— 合并部署后的统一入口。
@@ -63,6 +71,13 @@ public class AgentInitService {
             log.warn("DatabaseInitializer 未注入，跳过 Agent 建表");
         }
 
+        // 1.5) 拷贝默认技能到配置的技能目录（逐技能，不覆盖已存在的——保护进化改过的技能）
+        try {
+            copyDefaultSkillsIfAbsent();
+        } catch (Exception e) {
+            log.error("默认技能拷贝失败（不影响 DocSys 启动）: {}", e.getMessage(), e);
+        }
+
         // 2) LLM 配置同步（直接读 DocSys 内存配置，无网络阻塞）
         if (llmConfigSyncService != null) {
             try {
@@ -76,6 +91,67 @@ public class AgentInitService {
 
         initialized = true;
         log.info("=== DocSysAgent 初始化完成 ===");
+    }
+
+    /**
+     * 把打包在 WEB-INF/skills 下的默认技能拷贝到配置的技能目录。
+     *
+     * <p>逐技能子目录判断：目标下同名技能<b>不存在</b>才拷贝，<b>已存在则跳过绝不覆盖</b>
+     * ——因为已存在的技能可能已被自主进化(SkillCrystallizer)优化过，不能被默认版还原。
+     *
+     * <p>注意：不能对整个 skills 根目录用一次 {@code FileUtil.copyDir(src,dst,false)}——
+     * 当目标根已存在且 cover=false 时该方法会整体 return false 什么都不拷。必须逐技能拷。
+     *
+     * <p>拷贝完成后 reload 两个技能单例(SkillManager/EnhancedSkillManager)——它们在
+     * Spring 容器构造期就已加载技能(早于本方法)，需重新加载才能读到刚拷入的默认技能。
+     */
+    private void copyDefaultSkillsIfAbsent() {
+        int OSType = BaseFunction.OSType;
+        String srcSkillsDir = Path.getWebPath(OSType) + "WEB-INF/skills/";
+        String dstSkillsDir = Path.getAgentSkillStorePath(OSType);
+
+        File srcDir = new File(srcSkillsDir);
+        if (!srcDir.exists() || !srcDir.isDirectory()) {
+            log.warn("默认技能源目录不存在，跳过拷贝: {}", srcSkillsDir);
+            return;
+        }
+
+        FileUtil.createDir(dstSkillsDir);
+        log.info("默认技能拷贝: src={}, dst={}", srcSkillsDir, dstSkillsDir);
+
+        File[] skillDirs = srcDir.listFiles();
+        int copied = 0, skipped = 0;
+        if (skillDirs != null) {
+            for (File skill : skillDirs) {
+                if (!skill.isDirectory()) {
+                    continue; //只处理技能子目录
+                }
+                String skillId = skill.getName();
+                File dstSkill = new File(dstSkillsDir + skillId);
+                if (dstSkill.exists()) {
+                    skipped++;
+                    log.debug("技能已存在，跳过(保护进化产物): {}", skillId);
+                    continue;
+                }
+                boolean ok = FileUtil.copyDir(skill.getAbsolutePath(), dstSkillsDir + skillId, false);
+                if (ok) {
+                    copied++;
+                } else {
+                    log.warn("默认技能拷贝失败: {}", skillId);
+                }
+            }
+        }
+        log.info("默认技能拷贝完成: 新增={}, 跳过(已存在)={}", copied, skipped);
+
+        // 拷贝后把两个技能单例指向配置目录并 reload——它们在容器构造期用 user.dir 加载过一次(早于本方法)，
+        // 需重新指向配置目录才能读到刚拷入的默认技能，脱离 user.dir 隐式依赖。
+        try {
+            SkillManager.getInstance().setSkillsDirectory(dstSkillsDir);
+            EnhancedSkillManager.getInstance().setSkillsDirectory(dstSkillsDir);
+            log.info("技能单例已指向配置目录并 reload: {}", dstSkillsDir);
+        } catch (Exception e) {
+            log.error("技能单例重定向/reload 失败: {}", e.getMessage(), e);
+        }
     }
 
     /**

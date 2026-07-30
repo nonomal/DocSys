@@ -1,0 +1,12 @@
+[
+  {
+    "id": 1,
+    "prompt": "show the welcome banner",
+    "expected": "Displays the default welcome banner content. Output is the banner text/art from docsys CLI, no error message."
+  },
+  {
+    "id": 2,
+    "prompt": "display the holiday banner",
+    "expected": "Looks up banner named 'holiday' and displays its content. Returns banner not found error if the named banner does not exist."
+  }
+]

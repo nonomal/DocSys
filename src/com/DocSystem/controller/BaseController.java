@@ -22914,6 +22914,9 @@ public class BaseController  extends BaseFunction{
 		String indexDBStorePath = Path.getDataStorePath(OSType);
 		systemInfo.put("indexDBStorePath", indexDBStorePath);
 
+		String agentSkillStorePath = Path.getAgentSkillStorePath(OSType);
+		systemInfo.put("agentSkillStorePath", agentSkillStorePath);
+
 		String salesDataStorePath = Path.getSaleDataStorePath(OSType);
 		systemInfo.put("salesDataStorePath", salesDataStorePath);
 		
