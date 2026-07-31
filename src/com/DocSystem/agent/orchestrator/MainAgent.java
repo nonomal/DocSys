@@ -583,7 +583,9 @@ public class MainAgent {
             com.DocSystem.agent.llm.ResolvedLlmConfig resolvedLlm, boolean streaming) {
         com.DocSystem.agent.tool.ToolRegistry registry;
         com.DocSystem.agent.search.WebSearchService webSearch = buildWebSearchService();
-        String memoryUsername = client != null ? client.getCurrentUsername() : null;
+        // T8.3：memory 工具的用户维度取自 sessionInfo.username（SessionInfo 上游已设置），
+        // 不能用 client.getCurrentUsername()——getSessionClient 只设 cookie 不设 currentUsername。
+        String memoryUsername = extractUserId(sessionInfo);
         if (userMemoryService != null) {
             // T8.3：memory 工具绑定用户记忆存储 + 当前用户名（memory_set/get/list）
             registry = com.DocSystem.agent.tool.DocSysToolFactory.createFullRegistry(

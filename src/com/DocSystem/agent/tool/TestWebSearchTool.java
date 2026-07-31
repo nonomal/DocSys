@@ -28,6 +28,7 @@ public class TestWebSearchTool {
 
     public static void main(String[] args) throws Exception {
         testHtmlParse();
+        testBingHtmlParse();
         testJsonParse();
         testJsonWrappedParse();
         testHttp500Fallback();
@@ -93,6 +94,39 @@ public class TestWebSearchTool {
             if (out.results.size() >= 2) {
                 check("html: plain url kept", "https://example.org/page2".equals(out.results.get(1).url));
             }
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    /** T8.4.2 修复：默认端点改 Bing —— 验证 Bing b_algo 解析 + u= Base64URL 解码 */
+    private static final String BING_HTML =
+            "<html><body>"
+            + "<li class=\"b_algo\"><h2><a href=\"https://www.bing.com/ck/a?!&amp;&amp;p=x&amp;u=aHR0cHM6Ly9leGFtcGxlLmNvbS9wYWdlMQ&amp;ntb=1\">"
+            + "Apache <strong>Kafka</strong> 介绍</a></h2>"
+            + "<p><span class=\"news_dt\">2023年</span> 这是一个摘要 &amp; 内容</p></li>"
+            + "<li class=\"b_algo\"><h2><a href=\"https://example.org/page2\">第二个结果</a></h2>"
+            + "<p>摘要二</p></li>"
+            + "</body></html>";
+
+    private static void testBingHtmlParse() throws Exception {
+        HttpServer server = startServer(200, BING_HTML);
+        try {
+            WebSearchService svc = new WebSearchService(endpointOf(server), 3000);
+            WebSearchService.SearchOutcome out = svc.search("kafka", 5);
+            check("bing: success", out.isSuccess());
+            check("bing: 2 results", out.results != null && out.results.size() == 2);
+            if (out.results.size() >= 1) {
+                WebSearchResult r0 = out.results.get(0);
+                check("bing: title stripped", r0.title.contains("Kafka") && !r0.title.contains("<strong>"));
+                check("bing: u= base64url decoded", "https://example.com/page1".equals(r0.url));
+                check("bing: snippet stripped", r0.snippet.contains("这是一个摘要") && r0.snippet.contains("&"));
+            }
+            if (out.results.size() >= 2) {
+                check("bing: plain url kept", "https://example.org/page2".equals(out.results.get(1).url));
+            }
+            // 默认端点应已改为 Bing
+            check("default endpoint is Bing", WebSearchService.DEFAULT_ENDPOINT.contains("bing.com"));
         } finally {
             server.stop(0);
         }

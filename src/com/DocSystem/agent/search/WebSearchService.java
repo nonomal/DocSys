@@ -21,8 +21,11 @@ import java.util.regex.Pattern;
  *
  * <p>对可配置的搜索端点发起 HTTP 请求并解析结果：
  * <ul>
- *   <li>默认端点：DuckDuckGo HTML（无需 API key）——解析 {@code result__a}（标题/链接）与
- *       {@code result__snippet}（摘要），并还原其 {@code //duckduckgo.com/l/?uddg=} 重定向链接。</li>
+ *   <li>默认端点：Bing（无需 API key，实测国内可达）——解析 {@code li.b_algo} 中的
+ *       {@code h2 a}（标题/链接）与 {@code p}（摘要），并还原其 {@code //bing.com/ck/a?u=}
+ *       Base64URL 重定向链接为真实 URL。</li>
+ *   <li>若端点返回 DuckDuckGo HTML（含 {@code result__a}）→ 解析 DuckDuckGo 格式
+ *       （含 {@code //duckduckgo.com/l/?uddg=} 重定向解码）。</li>
  *   <li>若端点返回 JSON（以 {@code [} 或 {@code \{} 开头）：尝试通用字段
  *       （title / url|link / snippet|description|content），兼容常见搜索 API 返回。</li>
  * </ul>
@@ -32,8 +35,8 @@ public class WebSearchService {
 
     private static final Logger log = LoggerFactory.getLogger(WebSearchService.class);
 
-    /** 默认搜索端点（DuckDuckGo HTML，无需 API key） */
-    public static final String DEFAULT_ENDPOINT = "https://html.duckduckgo.com/html/?q=";
+    /** 默认搜索端点（Bing，无需 API key，国内可达） */
+    public static final String DEFAULT_ENDPOINT = "https://www.bing.com/search?q=";
 
     /** 默认超时（毫秒） */
     public static final long DEFAULT_TIMEOUT_MS = 8000;
@@ -42,11 +45,21 @@ public class WebSearchService {
     private final long timeoutMs;
     private final OkHttpClient httpClient;
 
-    private static final Pattern HTML_TITLE_PATTERN =
+    private static final Pattern DDG_TITLE_PATTERN =
             Pattern.compile("<a[^>]*class=\"[^\"]*result__a[^\"]*\"[^>]*href=\"([^\"]+)\"[^>]*>(.*?)</a>",
                     Pattern.DOTALL);
-    private static final Pattern HTML_SNIPPET_PATTERN =
+    private static final Pattern DDG_SNIPPET_PATTERN =
             Pattern.compile("<a[^>]*class=\"[^\"]*result__snippet[^\"]*\"[^>]*>(.*?)</a>",
+                    Pattern.DOTALL);
+    /** Bing 结果块：li.b_algo → h2 a（href+标题） + p（摘要） */
+    private static final Pattern BING_RESULT_PATTERN =
+            Pattern.compile("<li[^>]*class=\"[^\"]*b_algo[^\"]*\"[^>]*>(.*?)</li>",
+                    Pattern.DOTALL);
+    private static final Pattern BING_TITLE_PATTERN =
+            Pattern.compile("<h2[^>]*>\\s*<a[^>]*href=\"([^\"]+)\"[^>]*>(.*?)</a>",
+                    Pattern.DOTALL);
+    private static final Pattern BING_SNIPPET_PATTERN =
+            Pattern.compile("<p[^>]*>(.*?)</p>",
                     Pattern.DOTALL);
 
     public WebSearchService() {
@@ -104,7 +117,10 @@ public class WebSearchService {
                 return new SearchOutcome(new ArrayList<WebSearchResult>(),
                         "搜索端点返回 HTTP " + response.code());
             }
-            String body = response.body() != null ? response.body().string() : "";
+            // 显式按 UTF-8 解码（不依赖响应 Content-Type charset——无 charset 时 OkHttp 默认
+            // ISO-8859-1，中文会变乱码，导致摘要/标题解析错误）
+            String body = response.body() != null
+                    ? new String(response.body().bytes(), "UTF-8") : "";
             if (body == null || body.isEmpty()) {
                 return new SearchOutcome(new ArrayList<WebSearchResult>(), "搜索端点返回空内容");
             }
@@ -124,15 +140,49 @@ public class WebSearchService {
         if (trimmed.startsWith("[") || trimmed.startsWith("{")) {
             return parseJson(trimmed, limit);
         }
-        return parseHtml(body, limit);
+        // HTML：按内容嗅探格式（Bing 优先，DuckDuckGo 兜底）
+        if (trimmed.contains("b_algo")) {
+            return parseBingHtml(body, limit);
+        }
+        return parseDdgHtml(body, limit);
+    }
+
+    /** 解析 Bing 搜索结果页（li.b_algo → h2 a + p） */
+    private List<WebSearchResult> parseBingHtml(String html, int limit) {
+        List<WebSearchResult> results = new ArrayList<>();
+        try {
+            Matcher block = BING_RESULT_PATTERN.matcher(html);
+            while (block.find() && results.size() < limit) {
+                String li = block.group(1);
+                Matcher title = BING_TITLE_PATTERN.matcher(li);
+                if (!title.find()) {
+                    continue;
+                }
+                String href = title.group(1);
+                String t = stripHtml(title.group(2)).trim();
+                if (t.isEmpty()) {
+                    continue;
+                }
+                String url = normalizeUrl(href);
+                String snippet = "";
+                Matcher sn = BING_SNIPPET_PATTERN.matcher(li);
+                if (sn.find()) {
+                    snippet = stripHtml(sn.group(1)).trim();
+                }
+                results.add(new WebSearchResult(t, url, snippet));
+            }
+        } catch (Exception e) {
+            log.warn("WebSearchService.parseBingHtml failed: {}", e.getMessage());
+        }
+        return results;
     }
 
     /** 解析 DuckDuckGo HTML 结果页 */
-    private List<WebSearchResult> parseHtml(String html, int limit) {
+    private List<WebSearchResult> parseDdgHtml(String html, int limit) {
         List<WebSearchResult> results = new ArrayList<>();
         try {
-            Matcher titleMatcher = HTML_TITLE_PATTERN.matcher(html);
-            Matcher snippetMatcher = HTML_SNIPPET_PATTERN.matcher(html);
+            Matcher titleMatcher = DDG_TITLE_PATTERN.matcher(html);
+            Matcher snippetMatcher = DDG_SNIPPET_PATTERN.matcher(html);
             while (titleMatcher.find() && results.size() < limit) {
                 String href = titleMatcher.group(1).trim();
                 String title = stripHtml(titleMatcher.group(2)).trim();
@@ -148,7 +198,7 @@ public class WebSearchService {
                 results.add(new WebSearchResult(title, url, snippet));
             }
         } catch (Exception e) {
-            log.warn("WebSearchService.parseHtml failed: {}", e.getMessage());
+            log.warn("WebSearchService.parseDdgHtml failed: {}", e.getMessage());
         }
         return results;
     }
@@ -200,12 +250,13 @@ public class WebSearchService {
         return null;
     }
 
-    /** 还原 DuckDuckGo 的 //duckduckgo.com/l/?uddg=<encoded> 重定向链接 */
+    /** 还原搜索端点的重定向链接为真实 URL（DuckDuckGo uddg= / Bing u=） */
     private static String normalizeUrl(String href) {
         if (href == null || href.isEmpty()) {
             return "";
         }
         try {
+            // DuckDuckGo: //duckduckgo.com/l/?uddg=<url-encoded>
             int idx = href.indexOf("uddg=");
             if (idx >= 0) {
                 String encoded = href.substring(idx + 5);
@@ -213,12 +264,43 @@ public class WebSearchService {
                 if (amp >= 0) { encoded = encoded.substring(0, amp); }
                 return URLDecoder.decode(encoded, "UTF-8");
             }
+            // Bing: //www.bing.com/ck/a?...&u=<base64url-encoded>&ntb=1
+            idx = href.indexOf("u=");
+            if (idx >= 0) {
+                String encoded = href.substring(idx + 2);
+                int amp = encoded.indexOf('&');
+                if (amp >= 0) { encoded = encoded.substring(0, amp); }
+                String decoded = decodeBase64Url(encoded);
+                if (decoded != null && decoded.startsWith("http")) {
+                    return decoded;
+                }
+            }
             // 协议相对链接补全
             if (href.startsWith("//")) {
                 return "https:" + href;
             }
         } catch (Exception ignored) {}
         return href;
+    }
+
+    /** 解码 Bing 的 URL-safe Base64（- _ 映射为 + /，补齐 padding） */
+    private static String decodeBase64Url(String s) {
+        if (s == null || s.isEmpty()) {
+            return null;
+        }
+        try {
+            String b64 = s.replace('-', '+').replace('_', '/');
+            int pad = b64.length() % 4;
+            if (pad > 0) {
+                StringBuilder sb = new StringBuilder(b64);
+                for (int i = 0; i < 4 - pad; i++) { sb.append('='); }
+                b64 = sb.toString();
+            }
+            byte[] decoded = java.util.Base64.getDecoder().decode(b64);
+            return new String(decoded, "UTF-8");
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     /** 去除 HTML 标签与实体 */
