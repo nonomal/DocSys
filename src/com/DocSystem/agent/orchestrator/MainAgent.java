@@ -462,46 +462,8 @@ public class MainAgent {
                                         com.DocSystem.agent.tool.ConfirmEventSink confirmSink,
                                         String historySessionId) {
         try {
-            com.DocSystem.agent.tool.ToolRegistry registry =
-                    com.DocSystem.agent.tool.DocSysToolFactory.createFullRegistry(client);
-            // Skill 作为工具暴露（T4.4）：有 SkillExecutorRegistry 时注册 run_skill
-            if (skillExecutorRegistry != null) {
-                registry.register(com.DocSystem.agent.tool.DocSysToolFactory.runSkillTool(
-                        skillExecutorRegistry, context));
-            }
-            final String toolUserId = extractUserId(sessionInfo);
-            final String toolSessionId = context != null ? context.getSessionId() : null;
-            final String toolTraceId = org.slf4j.MDC.get("traceId");
-            final String toolClientIp = org.slf4j.MDC.get("clientIp");
-            // 写操作确认门（对接审计 + 轮询等待用户经 /confirm 批准 + 可选 SSE 推送）
-            com.DocSystem.agent.tool.AuditWriteConfirmGate gate = new com.DocSystem.agent.tool.AuditWriteConfirmGate(
-                    auditLogService, toolUserId, toolSessionId, toolClientIp, toolTraceId,
-                    toolLoopConfirmTimeoutSeconds);
-            gate.setConfirmEventSink(confirmSink);
-            registry.setConfirmGate(gate);
-            // 执行监听器：写工具落审计 + 指标打点（T4.2/T4.3）
-            registry.setExecutionListener((tool, args, result, durationMs) -> {
-                if (agentMetrics != null) {
-                    agentMetrics.incrementCounter("agent.tool.call", "tool", tool.name,
-                            "write", String.valueOf(tool.isWrite),
-                            "success", String.valueOf(result.success));
-                }
-                if (tool.isWrite && auditLogService != null) {
-                    java.util.Map<String, String> params = new java.util.HashMap<>();
-                    if (args != null) {
-                        for (java.util.Map.Entry<String, Object> e : args.entrySet()) {
-                            params.put(e.getKey(), String.valueOf(e.getValue()));
-                        }
-                    }
-                    auditLogService.record(toolUserId, toolSessionId, tool.name, params,
-                            toolClientIp, toolTraceId, result.success,
-                            result.success ? "Tool executed" : result.error);
-                }
-            });
-            boolean isAdmin = extractIsAdmin(sessionInfo);
             com.DocSystem.agent.orchestrator.ToolUseLoop loop =
-                    com.DocSystem.agent.orchestrator.ToolUseLoop.forLlmService(
-                            llmService, registry, resolvedLlm, isAdmin);
+                    buildToolLoop(client, context, sessionInfo, confirmSink, resolvedLlm, false);
             // T5.2b 会话记忆：续接会话时加载历史消息作为上下文
             java.util.List<java.util.Map<String, String>> priorHistory = loadSessionHistory(historySessionId);
             long loopStart = System.currentTimeMillis();
@@ -539,6 +501,117 @@ public class MainAgent {
             log.error("ToolUseLoop exception", e);
             return null;
         }
+    }
+
+    /**
+     * 流式运行 ToolUseLoop（T7.1.3/T7.1.4）：供 SSE 路径使用——推理过程（reasoning/text/tool_call/tool_result）
+     * 经 streamSink 实时推给前端。其余行为（护栏/审计/确认/指标/失败重试）与非流式完全一致。
+     *
+     * @param streamSink 流式事件回调（reasoning/text/tool_call/tool_result/retry）；可为 null
+     * @return 成功 → AgentResponse；失败/异常 → null（调用方回退旧路径）
+     */
+    public AgentResponse runToolUseLoopStreaming(String toolQuery, AgentContext context, DocSysClient client,
+                                                 com.DocSystem.agent.llm.ResolvedLlmConfig resolvedLlm,
+                                                 Object sessionInfo,
+                                                 com.DocSystem.agent.tool.ConfirmEventSink confirmSink,
+                                                 String historySessionId,
+                                                 com.DocSystem.agent.orchestrator.ToolUseLoop.StreamSink streamSink) {
+        try {
+            com.DocSystem.agent.orchestrator.ToolUseLoop loop =
+                    buildToolLoop(client, context, sessionInfo, confirmSink, resolvedLlm, true);
+            // T5.2b 会话记忆：续接会话时加载历史消息作为上下文
+            java.util.List<java.util.Map<String, String>> priorHistory = loadSessionHistory(historySessionId);
+            long loopStart = System.currentTimeMillis();
+            com.DocSystem.agent.orchestrator.ToolUseResult tr = loop.runStreaming(toolQuery, priorHistory, streamSink);
+            long duration = System.currentTimeMillis() - loopStart;
+            log.info("ToolUseLoop(streaming) finished: success={}, turns={}, toolCalls={}, cost={}ms",
+                    tr.success, tr.turns, tr.toolCalls, duration);
+            if (agentMetrics != null) {
+                agentMetrics.recordExecution("tool_loop", duration, tr.success);
+                agentMetrics.incrementCounter("agent.tool.loop",
+                        "success", String.valueOf(tr.success),
+                        "streaming", "true",
+                        "turns", String.valueOf(tr.turns));
+            }
+            if (tr.success) {
+                AgentResponse resp = AgentResponse.ok(tr.message);
+                resp.withProcessingTime(duration);
+                resp.addMetadata("toolLoop", "streaming=true, turns=" + tr.turns + ", toolCalls=" + tr.toolCalls);
+                return resp;
+            }
+
+            // T5.1 失败重试：注入"直接回答"提示重试一次（重试前通知前端清空已流式内容）
+            log.warn("ToolUseLoop(streaming) failed ({}), retrying once with direct-answer hint", tr.message);
+            if (streamSink != null) {
+                streamSink.onRetry();
+            }
+            com.DocSystem.agent.orchestrator.ToolUseResult retry = loop.runStreaming(
+                    toolQuery + "\n\n[SYSTEM] 如果无法通过工具完成，请直接基于已有信息回答用户，或说明限制。",
+                    priorHistory, streamSink);
+            if (retry.success) {
+                log.info("ToolUseLoop(streaming) retry succeeded: turns={}, toolCalls={}", retry.turns, retry.toolCalls);
+                AgentResponse resp = AgentResponse.ok(retry.message);
+                resp.withProcessingTime(System.currentTimeMillis() - loopStart);
+                resp.addMetadata("toolLoop", "streaming=true, retry=true, turns=" + retry.turns + ", toolCalls=" + retry.toolCalls);
+                return resp;
+            }
+            return null;
+        } catch (Exception e) {
+            log.error("ToolUseLoop(streaming) exception", e);
+            return null;
+        }
+    }
+
+    /**
+     * 构建配置好的 ToolUseLoop（注册表/确认门/审计监听/技能工具），流式与非流式共用。
+     */
+    private com.DocSystem.agent.orchestrator.ToolUseLoop buildToolLoop(
+            DocSysClient client, AgentContext context, Object sessionInfo,
+            com.DocSystem.agent.tool.ConfirmEventSink confirmSink,
+            com.DocSystem.agent.llm.ResolvedLlmConfig resolvedLlm, boolean streaming) {
+        com.DocSystem.agent.tool.ToolRegistry registry =
+                com.DocSystem.agent.tool.DocSysToolFactory.createFullRegistry(client);
+        // Skill 作为工具暴露（T4.4）：有 SkillExecutorRegistry 时注册 run_skill
+        if (skillExecutorRegistry != null) {
+            registry.register(com.DocSystem.agent.tool.DocSysToolFactory.runSkillTool(
+                    skillExecutorRegistry, context));
+        }
+        final String toolUserId = extractUserId(sessionInfo);
+        final String toolSessionId = context != null ? context.getSessionId() : null;
+        final String toolTraceId = org.slf4j.MDC.get("traceId");
+        final String toolClientIp = org.slf4j.MDC.get("clientIp");
+        // 写操作确认门（对接审计 + 轮询等待用户经 /confirm 批准 + 可选 SSE 推送）
+        com.DocSystem.agent.tool.AuditWriteConfirmGate gate = new com.DocSystem.agent.tool.AuditWriteConfirmGate(
+                auditLogService, toolUserId, toolSessionId, toolClientIp, toolTraceId,
+                toolLoopConfirmTimeoutSeconds);
+        gate.setConfirmEventSink(confirmSink);
+        registry.setConfirmGate(gate);
+        // 执行监听器：写工具落审计 + 指标打点（T4.2/T4.3）
+        registry.setExecutionListener((tool, args, result, durationMs) -> {
+            if (agentMetrics != null) {
+                agentMetrics.incrementCounter("agent.tool.call", "tool", tool.name,
+                        "write", String.valueOf(tool.isWrite),
+                        "success", String.valueOf(result.success));
+            }
+            if (tool.isWrite && auditLogService != null) {
+                java.util.Map<String, String> params = new java.util.HashMap<>();
+                if (args != null) {
+                    for (java.util.Map.Entry<String, Object> e : args.entrySet()) {
+                        params.put(e.getKey(), String.valueOf(e.getValue()));
+                    }
+                }
+                auditLogService.record(toolUserId, toolSessionId, tool.name, params,
+                        toolClientIp, toolTraceId, result.success,
+                        result.success ? "Tool executed" : result.error);
+            }
+        });
+        boolean isAdmin = extractIsAdmin(sessionInfo);
+        if (streaming) {
+            return com.DocSystem.agent.orchestrator.ToolUseLoop.forLlmServiceStreaming(
+                    llmService, registry, resolvedLlm, isAdmin);
+        }
+        return com.DocSystem.agent.orchestrator.ToolUseLoop.forLlmService(
+                llmService, registry, resolvedLlm, isAdmin);
     }
 
     /**

@@ -103,7 +103,7 @@ say you are an assistant in DocSys and focus on the user's needs.
 
 ## 5. 已完成进度（截至 2026-07-31）
 
-> **当前状态**：T1-T4 全部闭环 + T5.1/T5.2 完成 + **灰度开关已翻正（测试阶段）**。护栏 135 断言全绿。下一步 = 部署验证 + T5.3/T5.4 增强。
+> **当前状态**：T1-T4 全部闭环 + T5.1/T5.2 完成 + **T7 流式体验升级全部完成（2026-07-31 部署验收通过）**（灰度开关已翻正）。护栏 168 断言全绿。下一步 = T5.3/T5.4 增强 + 后续候选。
 
 ### 5.1 模型选择贯通自然语言链路（2026-07-31 完成）
 - `LLMService.chat(msg, sid, ResolvedLlmConfig)` 无状态重载已新增（只用局部变量，不写共享字段）。
@@ -174,6 +174,23 @@ say you are an assistant in DocSys and focus on the user's needs.
 - 护栏：`TestToolUseLoop` 新增 `testHistoryInjection` 4 项 → **36/36**。
 - **护栏全景**：`TestToolRegistry` **29/29**、`TestToolCallParser` **16/16**、`TestToolUseLoop` **36/36**、`TestWriteTools` **54/54** = **135 断言全绿**。
 
+### 5.10 T7 流式体验升级（2026-07-31 完成 T7.1-T7.3）
+- **T7.1 后端流式化**：
+  - `llm/StreamChunk.java`（新）：text/reasoning/done 三分片类型。
+  - `LLMService.streamChatChunks(List, resolved)`：多消息流式重载（对偶 chat(List)），OpenAI 兼容流 delta 提取 `reasoning_content`/`reasoning` 与 `content` 分离；Ollama 流 message 同名字段；末尾必有 done 标记。
+  - `ToolUseLoop`：`StreamingLlmCaller` + `StreamSink`（onReasoning/onText/onToolCall/onToolResult/onRetry，默认空实现）；`runStreaming(query, history, sink)`；run/runStreaming 共用 `runInternal`（TurnRunner 抽象）；`forLlmServiceStreaming` 双通道工厂；无流式通道自动回退非流式。
+  - `MainAgent`：`runToolUseLoopStreaming(...)`（流式运行 + onRetry 通知 + 失败重试保持）；`buildToolLoop(...)` 抽取流式/非流式共用。
+  - `AgentController`：`runToolLoopStreamingWithSse`（StreamSink→SSE 事件：reasoning/text/tool_call/tool_result/retry；全程累积 reasoning 供持久化）；`stream()` ToolUseLoop 路径真流式 + done 携带 meta；**isAiChat 路径也升级**为 streamChatChunks（DB 历史构建消息列表，reasoning/text 事件）；确认事件 confirm 保持。
+- **T7.2 前端**（只动 `WebRoot/web/agent/index.html`）：
+  - 真流式渲染（text/chunk 事件 → liveText 实时追加；done 落 content）；reasoning 独立灰色累积。
+  - 工具进度卡片 `renderToolCard`（running 转圈/成功/失败三态 + 参数 + 结果摘要/红字）；tool_call 前文本剥离 `<tool_call>` XML 收进处理容器。
+  - 可折叠处理过程容器 `<details class=process-container>`（reasoning 灰色小字 + 中间文本 + 工具卡片，生成中自动展开）；深色主题适配。
+  - **补写操作确认弹窗**（`{type:confirm}` → 批准/拒绝 POST /confirm，此前前端一直未接）。
+- **T7.3 reasoning 持久化**：`ConversationHistoryService.saveExchange(sid, user, assistant, reasoning)` 重载——reasoning 以 role=reasoning 消息落库（表 role VARCHAR(16) 无约束，无需 DDL）；三处保存钩子均传 reasoning；前端 loadSessionMessages 合并到其后 assistant 灰色展示；`MainAgent.loadSessionHistory`/isAiChat 消息构建只取 user/assistant（回放剥离不回灌模型）。
+- **护栏**：新增 `TestToolUseLoopStreaming` **26/26**（流式单轮/多轮工具链/reasoning 分离/工具失败/回退/重复调用提示）。**护栏全景 = 29+16+36+26+52 = 159 断言全绿**。
+- ⚠️ 编译通过（JDK 1.8，6 个 .java 更新 + StreamChunk 新增）；`runToolLoopWithSse`（旧非流式）已成死代码保留（无引用）；无新 Mapper/DDL。
+- ⚠️ 待做：T7.4 部署验收（docsys_start.bat 重启 + 真实 LLM 三类场景 + 首 token 延迟对照）。
+
 ### 5.5 已验证的事实（改造依据）
 - 意图识别**不只支持 chat**：多层管道（复合命令 → LLM NLU → Skill trigger → regex → chat 兜底），支持 list_repos/list_docs/search/generate_summary/search_and_answer/whoami/help/web_search 等 10+ 类。
 - LLM 当前只当分类器 + 兜底对话用，**无工具选择权、无多步推理、无失败重试**（用户确认这是要升级的缺陷）。
@@ -183,14 +200,8 @@ say you are an assistant in DocSys and focus on the user's needs.
 
 ## 6. 下一步 + 剩余大块
 
-- **当前里程碑**：部署验证 ToolUseLoop 真实链路 + 会话历史续接（开关已默认开）。
-- **立即验证**：重启 Tomcat 后——
-  1. 会话续接：发消息 → 刷新页面 → 左侧会话列表应保留 → 点击恢复历史消息继续聊
-  2. ToolUseLoop：`列出我的仓库` / `搜索合同` → 日志 `ToolUseLoop executing tool ...`
-  3. 写操作确认：`创建仓库 ...` → SSE 弹确认
-- **T5.3**：复杂任务多步编排验证（搜→RAG→生成→保存）。
-- **T5.4**：工具调用序列固化 Skill（对接 SkillCrystallizer，暂缓）。
-- **T6.1/T6.2/T6.4**：端到端黄金测试 / 性能对照 / 长尾回归。
+- **当前里程碑**：T7 流式体验升级**全部完成（2026-07-31 部署验收通过）**——真流式（惰性迭代器）+ reasoning 展示 + 工具卡片 + 可折叠容器 + 确认弹窗，三类场景实测通过。
+- **后续候选（P0/P1）**：Memory 工具（持久化用户偏好）、Web Search 工具、Warm 摘要压缩、Step 审计、Admin 配置 system prompt、旧路径 `waitForConfirmation` approve/拒绝 隐患修复。
 - **⚠️ 回退开关**：`-Dagent.tool-loop.enabled=false` 或 Spring 属性可一键回退旧路径。
 
 ### 关键环境/命令（勿另搞一套）

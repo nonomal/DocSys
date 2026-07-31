@@ -2,6 +2,7 @@ package com.DocSystem.agent.orchestrator;
 
 import com.DocSystem.agent.llm.LLMService;
 import com.DocSystem.agent.llm.ResolvedLlmConfig;
+import com.DocSystem.agent.llm.StreamChunk;
 import com.DocSystem.agent.tool.ToolCall;
 import com.DocSystem.agent.tool.ToolCallParser;
 import com.DocSystem.agent.tool.ToolPromptBuilder;
@@ -12,6 +13,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
@@ -61,6 +63,7 @@ public class ToolUseLoop {
     private static final int MAX_TRANSCRIPT_SIZE = 30;
 
     private final LlmCaller llmCaller;
+    private final StreamingLlmCaller streamingLlmCaller;
     private final ToolRegistry toolRegistry;
 
     /** 是否管理员（决定 adminOnly 工具可见性） */
@@ -75,17 +78,69 @@ public class ToolUseLoop {
     }
 
     /**
+     * 流式 LLM 调用抽象（T7.1.3）—— 默认包装 {@link LLMService#streamChatChunks(List, ResolvedLlmConfig)}。
+     * 返回的分片迭代器逐 token 到达（text/reasoning 分离），末尾必有 done。
+     */
+    @FunctionalInterface
+    public interface StreamingLlmCaller {
+        Iterator<StreamChunk> chat(List<Map<String, String>> messages) throws Exception;
+    }
+
+    /**
+     * 流式事件回调（T7.1.3）—— SSE 路径把工具推理过程实时推给前端：
+     * <ul>
+     *   <li>{@link #onReasoning}：思考过程分片（灰色小字展示）</li>
+     *   <li>{@link #onText}：正文分片（含工具调用中间文本，前端按需收进处理容器）</li>
+     *   <li>{@link #onToolCall}：工具开始执行（工具卡片"调用中"）</li>
+     *   <li>{@link #onToolResult}：工具执行完成（卡片结果/失败）</li>
+     *   <li>{@link #onRetry}：本请求失败重试开始（前端清空当前消息已流式内容）</li>
+     * </ul>
+     * 全部默认空实现，非流式路径不受影响。
+     */
+    public interface StreamSink {
+        default void onReasoning(String chunk) {}
+        default void onText(String chunk) {}
+        default void onToolCall(ToolCall call) {}
+        default void onToolResult(ToolCall call, ToolResult result) {}
+        default void onRetry() {}
+    }
+
+    /**
      * 便捷工厂：绑定 LLMService + resolved 配置。
      */
     public static ToolUseLoop forLlmService(LLMService llm, ToolRegistry registry,
                                              ResolvedLlmConfig resolved, boolean isAdmin) {
-        return new ToolUseLoop(messages -> llm.chat(messages, resolved), registry, isAdmin);
+        return new ToolUseLoop(
+                (LlmCaller) (messages -> llm.chat(messages, resolved)), registry, isAdmin);
+    }
+
+    /**
+     * 便捷工厂（T7.1.3）：绑定 LLMService + resolved 配置，流式 + 非流式双通道。
+     * 流式失败时（如 LLM 端点不支持 stream）可回退非流式通道，保证可用性。
+     */
+    public static ToolUseLoop forLlmServiceStreaming(LLMService llm, ToolRegistry registry,
+                                                      ResolvedLlmConfig resolved, boolean isAdmin) {
+        return new ToolUseLoop(
+                (LlmCaller) (messages -> llm.chat(messages, resolved)),
+                (StreamingLlmCaller) (messages -> llm.streamChatChunks(messages, resolved)),
+                registry, isAdmin);
     }
 
     public ToolUseLoop(LlmCaller llmCaller, ToolRegistry toolRegistry, boolean isAdmin) {
+        this(llmCaller, null, toolRegistry, isAdmin);
+    }
+
+    public ToolUseLoop(LlmCaller llmCaller, StreamingLlmCaller streamingLlmCaller,
+                       ToolRegistry toolRegistry, boolean isAdmin) {
         this.llmCaller = llmCaller;
+        this.streamingLlmCaller = streamingLlmCaller;
         this.toolRegistry = toolRegistry;
         this.isAdmin = isAdmin;
+    }
+
+    /** 仅流式通道（测试/纯流式场景用），非流式通道为 null */
+    public ToolUseLoop(StreamingLlmCaller streamingLlmCaller, ToolRegistry toolRegistry, boolean isAdmin) {
+        this(null, streamingLlmCaller, toolRegistry, isAdmin);
     }
 
     /**
@@ -106,6 +161,37 @@ public class ToolUseLoop {
      * @return 执行结果
      */
     public ToolUseResult run(String userQuery, List<Map<String, String>> priorHistory) {
+        return runInternal(userQuery, priorHistory, null);
+    }
+
+    /**
+     * 流式运行工具推理循环（T7.1.3）：与 {@link #run(String, List)} 完全同逻辑，
+     * 只是每轮 LLM 输出逐分片回调 {@link StreamSink}（reasoning/text 实时推送，
+     * 工具执行前后回调 tool_call/tool_result）。
+     *
+     * <p>若本实例没有流式通道（streamingLlmCaller == null），自动回退非流式执行
+     * （过程事件仍回调：每轮完整响应解析后补发 text；工具事件照常）。</p>
+     *
+     * @param userQuery      用户请求
+     * @param priorHistory   历史消息；null/空 = 新会话
+     * @param sink           流式事件回调（可为 null → 退化为非流式行为）
+     * @return 执行结果
+     */
+    public ToolUseResult runStreaming(String userQuery, List<Map<String, String>> priorHistory,
+                                      StreamSink sink) {
+        return runInternal(userQuery, priorHistory, sink);
+    }
+
+    /**
+     * 单轮 LLM 输出执行器 —— 非流式直接返回完整响应；流式逐分片回调并聚合完整响应。
+     */
+    @FunctionalInterface
+    private interface TurnRunner {
+        String run(List<Map<String, String>> messages) throws Exception;
+    }
+
+    private ToolUseResult runInternal(String userQuery, List<Map<String, String>> priorHistory,
+                                      StreamSink sink) {
         List<Map<String, String>> messages = new ArrayList<>();
         messages.add(systemMsg(ToolPromptBuilder.buildSystemPrompt(toolRegistry.listForUser(isAdmin))));
         // 历史上下文注入（续接会话时 LLM 记得前文）
@@ -130,10 +216,23 @@ public class ToolUseLoop {
         String lastCallKey = null;        // 上一个工具调用签名（name+args），用于重复检测
         int consecutiveIdentical = 0;     // 连续相同工具调用计数
 
+        // 选择单轮执行器：有 sink 且流式通道可用 → 流式；否则非流式
+        final TurnRunner turnRunner;
+        if (sink != null && streamingLlmCaller != null) {
+            turnRunner = msgs -> runStreamingTurn(msgs, sink);
+        } else {
+            turnRunner = msgs -> llmCaller.chat(msgs);
+            if (sink != null) {
+                // 流式通道不可用 → 退化为非流式（过程事件在轮末补发）
+                log.warn("ToolUseLoop: stream sink provided but streaming channel unavailable, " +
+                        "falling back to non-streaming turn execution");
+            }
+        }
+
         try {
             while (turns < MAX_TURNS) {
                 turns++;
-                String response = llmCaller.chat(messages);
+                String response = turnRunner.run(messages);
                 log.debug("ToolUseLoop turn {}: response={}", turns, truncate(response));
 
                 List<ToolCall> calls = ToolCallParser.parse(response);
@@ -175,16 +274,27 @@ public class ToolUseLoop {
                     if (consecutiveIdentical >= MAX_IDENTICAL_CALLS) {
                         log.warn("ToolUseLoop: tool '{}' called {} times identically, injecting hint",
                                 call.name, MAX_IDENTICAL_CALLS);
-                        messages.add(toolResultMsg(call.name, ToolResult.error(
+                        ToolResult hintError = ToolResult.error(
                                 "你已连续多次调用相同工具/参数且结果未改变。请换一个思路："
-                                + "检查参数是否正确、改用其他工具，或直接基于已有信息回答用户。")));
+                                + "检查参数是否正确、改用其他工具，或直接基于已有信息回答用户。");
+                        messages.add(toolResultMsg(call.name, hintError));
+                        if (sink != null) {
+                            sink.onToolCall(call);
+                            sink.onToolResult(call, hintError);
+                        }
                         consecutiveIdentical = 0;
                         lastCallKey = null;
                         continue;
                     }
 
                     log.info("ToolUseLoop executing tool '{}' args={}", call.name, call.arguments);
+                    if (sink != null) {
+                        sink.onToolCall(call);
+                    }
                     ToolResult result = toolRegistry.execute(call.name, call.arguments, isAdmin);
+                    if (sink != null) {
+                        sink.onToolResult(call, result);
+                    }
                     messages.add(toolResultMsg(call.name, result));
                 }
                 // 上下文裁剪：保留 system + user 开头，超长时丢弃最早的工具结果
@@ -199,6 +309,26 @@ public class ToolUseLoop {
         return ToolUseResult.error(
                 "处理超时：AI 连续调用工具过多仍未给出回答（已中断）。请缩小请求范围或重试。",
                 messages, turns, toolCalls, true);
+    }
+
+    /**
+     * 流式单轮执行：逐分片回调 sink（reasoning → onReasoning；text → onText），
+     * 聚合完整响应文本返回（供轮末解析 tool_call）。
+     */
+    private String runStreamingTurn(List<Map<String, String>> messages, StreamSink sink) throws Exception {
+        StringBuilder full = new StringBuilder();
+        Iterator<StreamChunk> it = streamingLlmCaller.chat(messages);
+        while (it.hasNext()) {
+            StreamChunk chunk = it.next();
+            if (chunk.isDone()) break;
+            if (chunk.isReasoning()) {
+                sink.onReasoning(chunk.content);
+            } else if (chunk.isText()) {
+                full.append(chunk.content);
+                sink.onText(chunk.content);
+            }
+        }
+        return full.toString();
     }
 
     // ---------- 消息构造 ----------

@@ -744,4 +744,218 @@ public class LLMService {
         }
         return chunks.iterator();
     }
+
+    /**
+     * 无状态多消息流式对话（T7.1.1/T7.1.2）：对偶 {@link #chat(List, ResolvedLlmConfig)} 的流式版本。
+     *
+     * <p>与现有 {@link #streamChat(String, String, ResolvedLlmConfig)} 的区别：</p>
+     * <ul>
+     *   <li>直接接收完整消息列表（自定义 system prompt / 工具结果回灌），不管理 conversationHistory；</li>
+     *   <li>返回 {@link StreamChunk} 迭代器——text 与 reasoning 分片分离
+     *       （OpenAI 兼容流 delta 的 {@code reasoning_content}/{@code reasoning} 字段）；</li>
+     *   <li>全程请求级局部变量，不写共享字段（线程安全）。</li>
+     * </ul>
+     *
+     * @param messages 完整消息列表（role ∈ system/user/assistant）
+     * @param resolved 请求级模型配置；null 时回退系统默认（只读解析，不写共享字段）
+     * @return StreamChunk 迭代器（末尾必有 done 标记）
+     */
+    public Iterator<StreamChunk> streamChatChunks(List<Map<String, String>> messages,
+                                                  ResolvedLlmConfig resolved) throws IOException {
+        try {
+            if (resolved == null) {
+                resolved = resolveDefaultConfig();
+            }
+            String streamEndpoint = resolved.endpoint;
+            String streamModel = resolved.model;
+            String streamApiKey = resolved.apiKey;
+            boolean streamOpenAi = resolved.openAiCompatible;
+
+            // Circuit breaker: primary/backup switching
+            if (hasBackup && isPrimaryCircuitOpen()) {
+                log.info("Primary LLM circuit breaker OPEN for streaming — switching to backup endpoint");
+                streamEndpoint = backupEndpoint;
+                streamModel = backupModel.isEmpty() ? defaultModel : backupModel;
+                streamApiKey = apiKey;
+                streamOpenAi = detectOpenAiCompatible(streamEndpoint);
+            }
+
+            Map<String, Object> requestBody = new HashMap<>();
+            requestBody.put("model", streamModel);
+            requestBody.put("messages", messages);
+            requestBody.put("temperature", temperature);
+            requestBody.put("max_tokens", maxTokens);
+            requestBody.put("stream", true);
+
+            String json = JSON.toJSONString(requestBody);
+            // Zhipu BigModel 用 /v4，OpenAI/DeepSeek 等兼容 API 用 /v1
+            String streamPath = (streamEndpoint != null && streamEndpoint.contains("bigmodel.cn"))
+                    ? "/v4/chat/completions" : "/v1/chat/completions";
+            String url = streamOpenAi ? streamEndpoint + streamPath : streamEndpoint + "/api/chat";
+
+            Request.Builder reqBuilder = new Request.Builder()
+                    .url(url)
+                    .header("Content-Type", "application/json")
+                    .post(RequestBody.create(JSON_MEDIA, json));
+            if (streamApiKey != null && !streamApiKey.isEmpty()) {
+                reqBuilder.header("Authorization", "Bearer " + streamApiKey);
+            }
+            Request request = reqBuilder.build();
+
+            Response response = httpClient.newCall(request).execute();
+            if (response.code() != 200) {
+                String errBody = "";
+                try {
+                    ResponseBody rb = response.body();
+                    errBody = rb != null ? rb.string() : "";
+                } catch (Exception ignored) {}
+                response.close();
+                log.warn("LLM streaming returned status {}: {}", response.code(), errBody);
+                throw new LlmHttpException(response.code(),
+                        "LLM streaming returned HTTP " + response.code() + ": " + errBody);
+            }
+            ResponseBody respBody = response.body();
+            if (respBody == null) {
+                response.close();
+                List<StreamChunk> onlyDone = new ArrayList<>();
+                onlyDone.add(StreamChunk.done());
+                return onlyDone.iterator();
+            }
+            BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(respBody.byteStream(), StandardCharsets.UTF_8));
+            // ★ 真流式：返回惰性迭代器，逐行读取 SSE 响应，分片到达即返回（绝不先缓冲全部）
+            return new StreamChunkIterator(reader, response, streamOpenAi);
+        } catch (IOException e) {
+            throw e;
+        } catch (Exception e) {
+            log.error("LLM streaming (chunks) failed: {}", e.getMessage());
+            throw new RuntimeException("LLM streaming failed: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 惰性流式迭代器（T7.1.1 真流式核心）：
+     * 持有 OkHttp Response + BufferedReader，每次 hasNext/next 才读下一行 SSE；
+     * reasoning/text 分片到达即返回，流结束（[DONE]/finish_reason/EOF）返回 done 并关闭响应。
+     *
+     * <p>不缓冲全部分片 → 调用方（ToolUseLoop/AgentController）逐分片回调，
+     * 前端才能逐 token 实时渲染。流式异常/自然结束一律兜底 done（不抛给调用方）。</p>
+     */
+    private static class StreamChunkIterator implements Iterator<StreamChunk> {
+
+        private final BufferedReader reader;
+        private final Response response;
+        private final boolean openAi;
+        private StreamChunk next;
+        private boolean finished = false;
+        private boolean closed = false;
+
+        StreamChunkIterator(BufferedReader reader, Response response, boolean openAi) {
+            this.reader = reader;
+            this.response = response;
+            this.openAi = openAi;
+        }
+
+        @Override
+        public boolean hasNext() {
+            if (next != null) return true;
+            if (finished) return false;
+            next = readNext();
+            return next != null;
+        }
+
+        @Override
+        public StreamChunk next() {
+            if (!hasNext()) {
+                throw new NoSuchElementException("stream already finished");
+            }
+            StreamChunk c = next;
+            next = null;
+            return c;
+        }
+
+        /** 读下一行 SSE 并解析为分片；返回 null 表示流已结束（done 已发出） */
+        private StreamChunk readNext() {
+            try {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    if (line.startsWith("data: ")) {
+                        line = line.substring(6);
+                    }
+                    if (line.isEmpty() || line.equals("[DONE]")) continue;
+
+                    try {
+                        JSONObject obj = JSON.parseObject(line);
+                        String text = null;
+                        String reasoning = null;
+                        boolean done = false;
+
+                        if (openAi) {
+                            // OpenAI SSE format: {"choices":[{"delta":{"content":"...","reasoning_content":"..."}}]}
+                            JSONArray choices = obj.getJSONArray("choices");
+                            if (choices != null && !choices.isEmpty()) {
+                                JSONObject delta = choices.getJSONObject(0).getJSONObject("delta");
+                                if (delta != null) {
+                                    text = delta.getString("content");
+                                    // reasoning 字段：DeepSeek/Qwen/GLM 等用 reasoning_content，部分模型用 reasoning
+                                    reasoning = delta.getString("reasoning_content");
+                                    if (reasoning == null) {
+                                        reasoning = delta.getString("reasoning");
+                                    }
+                                }
+                                String finishReason = choices.getJSONObject(0).getString("finish_reason");
+                                done = finishReason != null && !finishReason.isEmpty() && !"length".equals(finishReason);
+                            }
+                        } else {
+                            // Ollama SSE format: {"message":{"content":"..."},"done":true}
+                            JSONObject msg = obj.getJSONObject("message");
+                            if (msg != null) {
+                                text = msg.getString("content");
+                                reasoning = msg.getString("reasoning_content");
+                                if (reasoning == null) {
+                                    reasoning = msg.getString("reasoning");
+                                }
+                            }
+                            Boolean d = obj.getBoolean("done");
+                            done = d != null && d;
+                        }
+
+                        if (reasoning != null && !reasoning.isEmpty()) {
+                            return StreamChunk.reasoning(reasoning);
+                        }
+                        if (text != null && !text.isEmpty()) {
+                            return StreamChunk.text(text);
+                        }
+                        if (done) {
+                            finish();
+                            return StreamChunk.done();
+                        }
+                    } catch (Exception e) {
+                        // Skip malformed JSON line
+                    }
+                }
+                // 流自然结束（EOF）
+                finish();
+                return StreamChunk.done();
+            } catch (Exception e) {
+                log.warn("LLM SSE stream read error (falling back to done): {}", e.getMessage());
+                finish();
+                return StreamChunk.done();
+            }
+        }
+
+        private void finish() {
+            if (finished) return;
+            finished = true;
+            close();
+        }
+
+        private void close() {
+            if (closed) return;
+            closed = true;
+            try {
+                response.close();
+            } catch (Exception ignored) {}
+        }
+    }
 }

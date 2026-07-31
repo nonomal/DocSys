@@ -352,6 +352,106 @@ public class AgentController {
         }
     }
 
+    /** 流式工具推理的产物：响应 + 全程累积的 reasoning（T7.3 持久化用） */
+    private static class StreamingLoopOutcome {
+        final AgentResponse response;
+        final String reasoning;
+        StreamingLoopOutcome(AgentResponse response, String reasoning) {
+            this.response = response;
+            this.reasoning = reasoning != null ? reasoning : "";
+        }
+    }
+
+    /** SSE 安全推送（吞异常，避免流中断） */
+    private void sendSse(SseEmitter emitter, String json) {
+        try {
+            emitter.send(SseEmitter.event().data(json, MediaType.TEXT_PLAIN));
+        } catch (Exception e) {
+            log.warn("SSE send failed: {}", e.getMessage());
+        }
+    }
+
+    /** 截断工具卡片展示文本（结果摘要过长时） */
+    private String truncateForCard(String s, int maxLen) {
+        if (s == null) return "";
+        if (s.length() <= maxLen) return s;
+        return s.substring(0, maxLen) + "…";
+    }
+
+    /**
+     * 在 SSE 路径流式运行 ToolUseLoop（T7.1.3/T7.1.4）：
+     * 推理过程实时推送（reasoning/text/tool_call/tool_result/retry），
+     * 写操作确认事件（{@code type=confirm}）保持；全程累积 reasoning 供持久化。
+     *
+     * @return 产物（response + reasoning）；失败/异常 → null（调用方回退旧路径）
+     */
+    private StreamingLoopOutcome runToolLoopStreamingWithSse(String command, String username, String jsessionid,
+                                                             String sessionId,
+                                                             com.DocSystem.agent.llm.ResolvedLlmConfig resolvedLlm,
+                                                             SseEmitter emitter) {
+        try {
+            AgentContext context = getContext(username, jsessionid);
+            DocSysClient execClient = getSessionClient(jsessionid);
+            SessionInfo info = new SessionInfo(username, jsessionid, jsessionid);
+
+            final StringBuilder reasoningAccum = new StringBuilder();
+
+            // SSE 确认推送器：写工具需要确认时推 confirm 事件给前端
+            com.DocSystem.agent.tool.ConfirmEventSink sink = (toolName, token, msg) -> {
+                sendSse(emitter, "{\"type\":\"confirm\",\"confirmToken\":\"" + token +
+                        "\",\"operation\":\"" + toolName +
+                        "\",\"message\":" + escapeJson(msg) + "}");
+                log.info("SSE confirm pushed: tool={}, confirmToken={}", toolName, token);
+            };
+
+            // 流式事件推送器：reasoning/text/tool_call/tool_result/retry
+            com.DocSystem.agent.orchestrator.ToolUseLoop.StreamSink streamSink =
+                    new com.DocSystem.agent.orchestrator.ToolUseLoop.StreamSink() {
+                        @Override
+                        public void onReasoning(String chunk) {
+                            reasoningAccum.append(chunk);
+                            sendSse(emitter, "{\"type\":\"reasoning\",\"content\":" + escapeJson(chunk) + "}");
+                        }
+                        @Override
+                        public void onText(String chunk) {
+                            sendSse(emitter, "{\"type\":\"text\",\"content\":" + escapeJson(chunk) + "}");
+                        }
+                        @Override
+                        public void onToolCall(com.DocSystem.agent.tool.ToolCall call) {
+                            String args = call.arguments != null ? call.arguments.toJSONString() : "{}";
+                            sendSse(emitter, "{\"type\":\"tool_call\",\"name\":" + escapeJson(call.name) +
+                                    ",\"arguments\":" + args + "}");
+                        }
+                        @Override
+                        public void onToolResult(com.DocSystem.agent.tool.ToolCall call,
+                                                 com.DocSystem.agent.tool.ToolResult result) {
+                            String summary = truncateForCard(
+                                    result.success
+                                            ? (result.summary != null ? result.summary : "")
+                                            : (result.error != null ? result.error : "执行失败"),
+                                    300);
+                            String err = result.success ? null
+                                    : (result.error != null ? truncateForCard(result.error, 200) : "执行失败");
+                            sendSse(emitter, "{\"type\":\"tool_result\",\"name\":" + escapeJson(call.name) +
+                                    ",\"success\":" + result.success +
+                                    ",\"summary\":" + escapeJson(summary) +
+                                    ",\"error\":" + (err != null ? escapeJson(err) : "null") + "}");
+                        }
+                        @Override
+                        public void onRetry() {
+                            sendSse(emitter, "{\"type\":\"retry\"}");
+                        }
+                    };
+
+            AgentResponse resp = mainAgent.runToolUseLoopStreaming(
+                    command, context, execClient, resolvedLlm, info, sink, sessionId, streamSink);
+            return new StreamingLoopOutcome(resp, reasoningAccum.toString());
+        } catch (Exception e) {
+            log.error("runToolLoopStreamingWithSse failed", e);
+            return null;
+        }
+    }
+
     /**
      * Smart execute request DTO - 支持 CLI 优先 + 可视化备选
      */
@@ -806,58 +906,93 @@ public class AgentController {
 
                     String effectiveSession = sessionId != null ? sessionId : "stream-" + System.currentTimeMillis();
                     StringBuilder fullContent = new StringBuilder();
+                    StringBuilder reasoningAccum = new StringBuilder();
 
-                    Iterator<String> chunks = (resolvedLlm != null)
-                            ? llmService.streamChat(message, effectiveSession, resolvedLlm)
-                            : llmService.streamChat(message, effectiveSession);
-                    while (chunks.hasNext()) {
-                        String chunk = chunks.next();
-                        if ("[DONE]".equals(chunk)) break;
-                        if (chunk.startsWith("[ERROR]")) {
-                            emitter.send(SseEmitter.event()
-                                .data("{\"type\":\"error\",\"message\":\"" + chunk.substring(8) + "\"}", MediaType.TEXT_PLAIN));
-                            break;
+                    try {
+                        // 构建消息列表（T7.1.1）：软化 system + DB 历史（最近 20 条 user/assistant）+ 当前消息
+                        List<Map<String, String>> chatMessages = new ArrayList<>();
+                        Map<String, String> sysMsg = new HashMap<>();
+                        sysMsg.put("role", "system");
+                        sysMsg.put("content", "DocSys document management context: help users with documents, " +
+                                "repositories, and related tasks. Be concise and helpful. " +
+                                "You do not know what model or architecture you run on — " +
+                                "if asked, say you are an assistant in DocSys and focus on the user's needs.");
+                        chatMessages.add(sysMsg);
+                        if (conversationHistoryService != null) {
+                            List<com.DocSystem.agent.session.SessionMessageEntity> history =
+                                    conversationHistoryService.getHistory(effectiveSession);
+                            if (history != null && !history.isEmpty()) {
+                                int start = Math.max(0, history.size() - 20);
+                                for (int i = start; i < history.size(); i++) {
+                                    com.DocSystem.agent.session.SessionMessageEntity m = history.get(i);
+                                    String role = m.getRole();
+                                    if (!"user".equals(role) && !"assistant".equals(role)) continue;
+                                    Map<String, String> histMsg = new HashMap<>();
+                                    histMsg.put("role", role);
+                                    histMsg.put("content", m.getContent() != null ? m.getContent() : "");
+                                    chatMessages.add(histMsg);
+                                }
+                            }
                         }
-                        fullContent.append(chunk);
+                        Map<String, String> chatUserMsg = new HashMap<>();
+                        chatUserMsg.put("role", "user");
+                        chatUserMsg.put("content", message);
+                        chatMessages.add(chatUserMsg);
+
+                        // 真流式 + reasoning 分离（T7.1.2）
+                        Iterator<com.DocSystem.agent.llm.StreamChunk> chunks =
+                                llmService.streamChatChunks(chatMessages, resolvedLlm);
+                        while (chunks.hasNext()) {
+                            com.DocSystem.agent.llm.StreamChunk chunk = chunks.next();
+                            if (chunk.isDone()) break;
+                            if (chunk.isReasoning()) {
+                                reasoningAccum.append(chunk.content);
+                                emitter.send(SseEmitter.event()
+                                    .data("{\"type\":\"reasoning\",\"content\":" + escapeJson(chunk.content) + "}", MediaType.TEXT_PLAIN));
+                            } else if (chunk.isText()) {
+                                fullContent.append(chunk.content);
+                                emitter.send(SseEmitter.event()
+                                    .data("{\"type\":\"text\",\"content\":" + escapeJson(chunk.content) + "}", MediaType.TEXT_PLAIN));
+                            }
+                        }
+                    } catch (Exception e) {
+                        log.warn("isAiChat streaming failed: {}", e.getMessage());
                         emitter.send(SseEmitter.event()
-                            .data("{\"type\":\"chunk\",\"content\":" + escapeJson(chunk) + "}", MediaType.TEXT_PLAIN));
+                            .data("{\"type\":\"error\",\"message\":" + escapeJson("AI 流式响应失败: " + e.getMessage()) + "}", MediaType.TEXT_PLAIN));
+                        emitter.complete();
+                        return;
                     }
 
                     emitter.send(SseEmitter.event()
                         .data("{\"type\":\"done\",\"fullContent\":" + escapeJson(fullContent.toString()) + "}", MediaType.TEXT_PLAIN));
 
-                    // T5.2a 会话历史持久化（关页面后可续接）
+                    // T5.2a 会话历史持久化（关页面后可续接；T7.3 含 reasoning）
                     if (conversationHistoryService != null) {
-                        conversationHistoryService.saveExchange(effectiveSession, message, fullContent.toString());
+                        conversationHistoryService.saveExchange(effectiveSession, message,
+                                fullContent.toString(), reasoningAccum.toString());
                     }
 
                 } else {
                     // Non-AI command: execute and stream result
-                    // ===== ToolUseLoop：全局开启时走工具推理（SSE 确认推送） =====
+                    // ===== ToolUseLoop：全局开启时走工具推理（SSE 真流式 + 确认推送） =====
                     if (toolLoopEnabled && llmService != null) {
                         try {
-                            AgentResponse toolResp = runToolLoopWithSse(
+                            StreamingLoopOutcome outcome = runToolLoopStreamingWithSse(
                                     command, capturedUsername, capturedJsessionid, sessionId, resolvedLlm, emitter);
-                            if (toolResp != null) {
+                            if (outcome != null && outcome.response != null) {
+                                AgentResponse toolResp = outcome.response;
                                 String responseText = toolResp.isSuccess()
                                         ? toolResp.getMessage() : "错误: " + toolResp.getMessage();
-                                int chunkSize = 5;
-                                for (int i = 0; i < responseText.length(); i += chunkSize) {
-                                    int end = Math.min(i + chunkSize, responseText.length());
-                                    String part = responseText.substring(i, end);
-                                    emitter.send(SseEmitter.event()
-                                        .data("{\"type\":\"chunk\",\"content\":" + escapeJson(part) + "}", MediaType.TEXT_PLAIN));
-                                    if (i + chunkSize < responseText.length()) {
-                                        Thread.sleep(15);
-                                    }
-                                }
-                                emitter.send(SseEmitter.event()
-                                    .data("{\"type\":\"done\",\"fullContent\":" + escapeJson(responseText) + "}", MediaType.TEXT_PLAIN));
-                                // T5.2a 会话历史持久化
+                                // 最终回答已逐分片按 {type:text} 推送；done 事件携带完整内容 + 元数据收尾
+                                String meta = toolResp.getMetadata() != null
+                                        ? JSON.toJSONString(toolResp.getMetadata()) : "{}";
+                                sendSse(emitter, "{\"type\":\"done\",\"fullContent\":" + escapeJson(responseText) +
+                                        ",\"meta\":" + meta + "}");
+                                // T5.2a 会话历史持久化（T7.3 含 reasoning）
                                 if (conversationHistoryService != null) {
                                     conversationHistoryService.saveExchange(
                                             sessionId != null ? sessionId : capturedJsessionid,
-                                            command, responseText);
+                                            command, responseText, outcome.reasoning);
                                 }
                                 emitter.complete();
                                 return;

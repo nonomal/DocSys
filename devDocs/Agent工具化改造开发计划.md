@@ -44,6 +44,7 @@
    - 执行从"规则路由到 SubAgent"改为"解析 tool_call → ToolRegistry 执行 → 结果回灌对话"。
 5. 关键约束（参考 LLMService 并发注意事项）：所有请求级配置（含工具集）必须以**局部变量/参数**贯穿，不得写 `LLMService` 共享可变字段（存在并发竞态）。
 6. 模型身份问题已修复：系统提示词已去掉 `"You are..."` 身份设定，改为纯场景描述 + 显式禁止编造架构信息（2026-07-31 已改，见上下文文档 §5）。
+7. **T7 参考蓝本（2026-07-31 调研）**：`D:\Dev\ai-writting-node` PR #359 的 Agent 实现（AI SDK v7 ToolLoopAgent）——单 Agent 循环 + DB 历史重建上下文 + 三层上下文（Baseline 免压缩 persistent / Warm LLM 摘要 / Hot 近期历史）+ 双水位压缩 + 流式 UIMessage（text/reasoning/tool 卡片）+ 可折叠处理过程容器 + Step 审计 + Memory 工具 + Web Search。DocSys Agent 核心循环已对齐；**T7 补齐流式体验（Reasoning 展示 + 真流式 + 工具卡片）**，P0/P1 其余项（Memory 工具/Web Search/Warm 压缩/Step 审计/Admin 配置提示词）列入后续候选。
 
 ---
 
@@ -206,6 +207,70 @@
       - 内容：旧路径曾支持的意图/命令（list-repos、create-repos 等复合命令）在新路径下仍可用。
       - 完成判据：覆盖旧路径全部命令场景，无能力退化。
       - 当前状态：未开始。
+
+  - [ ] **T7. 流式体验升级（对齐 ai-writting-node：Reasoning 展示 + 真流式 + 工具进度卡片）**
+    - 当前状态：**全部完成（2026-07-31 部署验收通过）**。参考蓝本：`D:\Dev\ai-writting-node` PR #359（AI SDK v7 ToolLoopAgent）——`UIMessage stream`（text/reasoning/tool 进度卡片）+ 可折叠处理过程容器 + reasoning 灰色小字内联 + 回放剥离。
+    - 现状问题：ToolUseLoop 目前用**非流式 chat**（每轮等完整响应），SSE 路径用**5 字符假打字**推送最终结果——用户看不到"LLM 正在思考/调工具"的过程，工具链场景体验差；也无 reasoning 展示。
+    - [x] T7.1 后端：ToolUseLoop 流式化（事件协议）
+      - 当前状态：已完成（2026-07-31）。编译通过（JDK 1.8）；护栏 `TestToolUseLoopStreaming` **26/26**。
+      - [x] T7.1.1 `LLMService.streamChat(List<Map>, resolved)` 多消息流式重载
+        - 内容：对偶已存在的 `chat(List<Map>, resolved)`，新增流式版本（自定义 system prompt + 工具结果回灌 + 逐 token 输出）；同样无状态、不写共享字段。
+        - 完成判据：与 chat(List) 同参，能流式返回；护栏单测（假流验证协议）。
+        - 完成记录：`LLMService.streamChatChunks(List, resolved)` 已新增（返回 `StreamChunk` 迭代器，末尾必有 done）；配套新增 `llm/StreamChunk.java`（text/reasoning/done 三型）。
+      - [x] T7.1.2 reasoning 提取
+        - 内容：OpenAI 兼容流中提取 `reasoning_content`/`reasoning` 分片（模型支持时）；与 `content` 分片分离。
+        - 完成判据：支持 reasoning 的模型流能同时产出 text + reasoning 两类分片。
+        - 完成记录：OpenAI 兼容流 delta 提取 `reasoning_content`/`reasoning`；Ollama 流 message 提取同名字段。护栏 `testStreamingReasoningSeparation`（reasoning 不进正文）。
+      - [x] T7.1.3 ToolUseLoop 流式运行模式
+        - 内容：新增流式 run——每轮 LLM 输出逐分片回调（text/reasoning）；轮末仍解析 `<tool_call>`；工具执行时回调 tool_call/tool_result 事件；最终回答回调 done。保持非流式 run 兼容（/execute 路径不变）。
+        - 完成判据：单测覆盖"流式多轮工具链"（假 LLM 分片驱动）。
+        - 完成记录：`runStreaming(query, history, StreamSink)` + `StreamingLlmCaller`/`StreamSink` 接口；`forLlmServiceStreaming` 双通道工厂；run/runStreaming 共用 runInternal（TurnRunner 抽象）；无流式通道时自动回退非流式。护栏覆盖：流式单轮/多轮工具链/工具失败/回退/重复调用提示（26 项）。
+      - [x] T7.1.4 SSE 事件协议 + AgentController 接入
+        - 内容：定义 `{type: reasoning} / {type: text} / {type: tool_call} / {type: tool_result} / {type: done}`；`stream()` 的 ToolUseLoop 路径改用流式事件推送（替代假打字）；确认事件 `{type: confirm}` 保持。
+        - 完成判据：前端能区分 reasoning/text/tool 事件并按类型渲染。
+        - 完成记录：`AgentController.runToolLoopStreamingWithSse`（StreamSink→SSE 事件，全程累积 reasoning）；`stream()` ToolUseLoop 路径已改流式推送 + done 携带 meta；isAiChat 路径也升级为 streamChatChunks + reasoning/text 事件（DB 历史构建消息列表）；确认事件 confirm 保持。
+      - [x] T7.1.5 兼容性保持
+        - 内容：/execute 非流式路径、失败回退、T5.1 重试逻辑不受影响。
+        - 完成判据：开关关闭或流式失败时回退现状（一次性展示）零回归。
+        - 完成记录：`run()` 非流式路径未动（TestToolUseLoop 36/36 回归通过）；流式失败/异常 → `runToolLoopStreamingWithSse` 返回 null → 回退 legacy；重试前 `onRetry` 事件通知前端清空；`MainAgent.buildToolLoop` 抽取共用。
+    - [x] T7.2 前端：流式渲染 + 工具进度卡片
+      - 当前状态：已完成（2026-07-31）。只动 `WebRoot/web/agent/index.html`。
+      - [x] T7.2.1 真流式渲染
+        - 内容：替代 5 字符假打字——按 `text` 事件逐 token 追加（后端已真流式）；`reasoning` 与 `text` 分开展示。
+        - 完成判据：LLM 生成过程中文字实时出现（首 token 延迟可感知）。
+        - 完成记录：`executeWithGeneration` 新增 `text`/`chunk` 事件 → 追加 liveText（实时渲染）；`done` 落 content；reasoning 独立累积灰色展示。
+      - [x] T7.2.2 工具进度卡片
+        - 内容：`tool_call` 事件 → 显示工具名/参数卡片（"调用中"）；`tool_result` → 结果摘要/失败红字；多工具按顺序排列。
+        - 完成判据：工具链场景下每步工具调用/结果可见。
+        - 完成记录：`renderToolCard`（running 转圈/成功/失败三态 + 参数 + 结果摘要/红字）；tool_call 前文本剥离 XML 收进处理容器。
+      - [x] T7.2.3 处理过程容器（可折叠）
+        - 内容：仿 ai-writting-node——reasoning + 工具调用 + 中间文本收进"处理中/处理结果 + 耗时"可折叠容器；容器外只保留最终文本 + 当前工具卡片。
+        - 完成判据：多轮工具链的中间过程可折叠隐藏，界面清爽。
+        - 完成记录：`<details class=process-container>`（生成中自动展开）+ reasoning 灰色小字 + 中间文本 + 工具卡片；深色主题适配。另补写操作**确认弹窗**（`{type:confirm}` → 批准/拒绝 POST /confirm，此前前端未接）。
+    - [x] T7.3 Reasoning 持久化 + 展示
+      - 当前状态：已完成（2026-07-31）。
+      - [x] T7.3.1 reasoning 持久化
+        - 内容：reasoning 分片保存到会话消息（新 role=reasoning 或 assistant 消息的 metadata 字段），供回看。
+        - 完成判据：刷新页面后 reasoning 历史可恢复。
+        - 完成记录：`ConversationHistoryService.saveExchange(sid, user, assistant, reasoning)` 重载——reasoning 以 role=reasoning 消息落库（表 role VARCHAR(16) 无约束，无需 DDL 变更）；AgentController 三处保存钩子均传 reasoning。
+      - [x] T7.3.2 前端灰色小字展示
+        - 内容：reasoning 以灰色小字内联/可折叠展示（仿 ai-writting-node）。
+        - 完成判据：reasoning 与正文视觉区分清晰。
+        - 完成记录：`loadSessionMessages` 把 role=reasoning 消息合并到其后 assistant 的 reasoning 字段 → 灰色小字渲染。
+      - [x] T7.3.3 回放剥离
+        - 内容：历史 reasoning 不回灌模型（仅展示用），避免脏上下文/缺供应商签名错误。
+        - 完成判据：续接会话加载历史时不含 reasoning。
+        - 完成记录：`MainAgent.loadSessionHistory` 只取 user/assistant（已排除 reasoning）；isAiChat 消息列表构建同样只取 user/assistant。
+    - [x] T7.4 验收
+      - 当前状态：**已完成（2026-07-31 部署验收）**。修复真流式关键 bug：`streamChatChunks` 原为"先缓冲全部分片再返回迭代器"→ 改为**惰性流式迭代器**（`StreamChunkIterator` 逐行读 SSE，分片到达即返回）；新增 `TestStreamChatChunks`（本地 HTTP 服务器模拟 SSE 分片延迟，**9/9**，时序证据 [161,375,625]ms 渐进到达）。
+      - [x] T7.4.1 真实 LLM 流式端到端
+        - 内容：单轮对话 + 多轮工具链 + reasoning 模型三类场景，人工验收展示效果。
+        - 完成判据：流式流畅、工具卡片正确、reasoning 可见且不影响回答。
+        - 完成记录：DeepSeek（deepseek-v4-flash）三类场景全部通过——SSE 时序证明 reasoning/text/tool_call/tool_result 事件渐进到达（15-30ms 间隔）；浏览器 UI 实测生成中途可见"处理中…" + reasoning 灰色小字实时流出 + 工具卡片 + 正文逐段生成 + 停止按钮。⚠️ 自定义模型 Claude 4.8（wiselnk）不支持流式→自动回退 legacy 假打字（配置问题非代码 bug）。
+      - [x] T7.4.2 性能对照
+        - 内容：流式首 token 延迟、整轮耗时 vs 非流式基线。
+        - 完成判据：首 token 延迟明显低于整轮耗时（流式收益成立）。
+        - 完成记录：实测单轮对话首 reasoning 分片 458ms / 首 text 分片 2053ms / done 4836ms——首分片远早于整轮耗时，流式收益成立。
 
 ---
 

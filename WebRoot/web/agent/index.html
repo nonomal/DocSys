@@ -544,7 +544,241 @@
         .toast.error { background: #d32f2f; }
         .toast.warning { background: #f57c00; }
         .toast.info { background: #1976d2; }
-        
+
+        /* ===== T7.2 流式体验：处理过程容器 + 工具进度卡片 + reasoning ===== */
+        .process-container {
+            margin: 6px 0 10px;
+            border: 1px solid #e3e3e8;
+            border-radius: 12px;
+            background: #fafafc;
+            overflow: hidden;
+            font-size: 13px;
+        }
+
+        .process-container[open] .process-body {
+            border-top: 1px dashed #e3e3e8;
+        }
+
+        .process-summary {
+            cursor: pointer;
+            list-style: none;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 14px;
+            color: #666;
+            font-size: 12px;
+            user-select: none;
+            transition: background 0.15s;
+        }
+        .process-summary:hover { background: #f0f0f4; }
+        .process-summary::-webkit-details-marker { display: none; }
+        .process-summary::before {
+            content: '▸';
+            display: inline-block;
+            transition: transform 0.15s;
+            color: #999;
+        }
+        .process-container[open] .process-summary::before { transform: rotate(90deg); }
+
+        .process-status {
+            margin-left: auto;
+            font-size: 11px;
+            color: #009a61;
+        }
+
+        .process-body {
+            padding: 10px 14px 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        /* reasoning：灰色小字（T7.3.2） */
+        .reasoning-text {
+            color: #999;
+            font-size: 12px;
+            line-height: 1.6;
+            white-space: pre-wrap;
+            word-break: break-word;
+            border-left: 3px solid #ddd;
+            padding-left: 10px;
+        }
+
+        /* 工具调用前的中间文本 */
+        .intermediate-text {
+            color: #888;
+            font-size: 12px;
+            line-height: 1.6;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        /* 工具进度卡片（T7.2.2） */
+        .tool-card {
+            border: 1px solid #e3e3e8;
+            border-radius: 10px;
+            background: #fff;
+            padding: 8px 12px;
+            font-size: 12px;
+            line-height: 1.5;
+        }
+        .tool-card.running { border-color: #1976d2; background: #f5f9ff; }
+        .tool-card.success { border-color: #b9e6cf; }
+        .tool-card.failed { border-color: #f3b4b4; background: #fff7f7; }
+
+        .tool-card-header {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .tool-card-icon { font-size: 13px; }
+        .tool-card-name {
+            font-family: Consolas, Menlo, monospace;
+            font-weight: 600;
+            color: #333;
+            font-size: 12px;
+        }
+        .tool-card-status {
+            margin-left: auto;
+            font-size: 11px;
+            color: #1976d2;
+        }
+        .tool-card.failed .tool-card-status { color: #d32f2f; }
+        .tool-card.success .tool-card-status { color: #009a61; }
+        .tool-card.running .tool-card-status::after {
+            content: '';
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            margin-left: 4px;
+            border: 2px solid #1976d2;
+            border-top-color: transparent;
+            border-radius: 50%;
+            vertical-align: -2px;
+            animation: tool-spin 0.8s linear infinite;
+        }
+        @keyframes tool-spin { to { transform: rotate(360deg); } }
+
+        .tool-card-args {
+            margin-top: 4px;
+            font-family: Consolas, Menlo, monospace;
+            font-size: 11px;
+            color: #777;
+            background: #f7f7f9;
+            border-radius: 6px;
+            padding: 4px 8px;
+            word-break: break-all;
+            white-space: pre-wrap;
+            max-height: 120px;
+            overflow: auto;
+        }
+        .tool-card-result {
+            margin-top: 4px;
+            color: #444;
+            font-size: 12px;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+        .tool-card.failed .tool-card-result { color: #d32f2f; }
+
+        /* ===== T7.2 确认弹窗（写操作 SSE confirm） ===== */
+        .confirm-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.45);
+            z-index: 11000;
+            align-items: center;
+            justify-content: center;
+        }
+        .confirm-overlay.show { display: flex; }
+        .confirm-dialog {
+            background: #fff;
+            border-radius: 14px;
+            width: 420px;
+            max-width: 90vw;
+            padding: 20px 22px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.25);
+        }
+        .confirm-title {
+            font-size: 15px;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 6px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .confirm-op {
+            display: inline-block;
+            background: #fff3e0;
+            color: #e65100;
+            font-size: 11px;
+            font-family: Consolas, Menlo, monospace;
+            padding: 2px 8px;
+            border-radius: 6px;
+        }
+        .confirm-msg {
+            color: #555;
+            font-size: 13px;
+            line-height: 1.6;
+            margin: 10px 0 16px;
+            white-space: pre-wrap;
+            word-break: break-word;
+            max-height: 160px;
+            overflow: auto;
+        }
+        .confirm-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+        }
+        .confirm-actions button {
+            border: none;
+            border-radius: 8px;
+            padding: 8px 18px;
+            font-size: 13px;
+            cursor: pointer;
+            font-weight: 500;
+        }
+        .confirm-reject {
+            background: #f0f0f0;
+            color: #555;
+        }
+        .confirm-reject:hover { background: #e4e4e4; }
+        .confirm-approve {
+            background: linear-gradient(135deg, #009a61 0%, #00b876 100%);
+            color: #fff;
+        }
+        .confirm-approve:hover { filter: brightness(1.05); }
+
+        /* dark theme 适配 */
+        body.dark-theme .process-container {
+            background: #1c1f2e;
+            border-color: #343a52;
+        }
+        body.dark-theme .process-container[open] .process-body { border-color: #343a52; }
+        body.dark-theme .process-summary { color: #9aa0b4; }
+        body.dark-theme .process-summary:hover { background: #232741; }
+        body.dark-theme .reasoning-text { color: #7d8299; border-left-color: #3a3f5c; }
+        body.dark-theme .intermediate-text { color: #8b90a6; }
+        body.dark-theme .tool-card {
+            background: #20243a;
+            border-color: #343a52;
+        }
+        body.dark-theme .tool-card.running { background: #1a2540; border-color: #2f5fb0; }
+        body.dark-theme .tool-card.failed { background: #2e1f24; border-color: #6e3333; }
+        body.dark-theme .tool-card-name { color: #d6dae6; }
+        body.dark-theme .tool-card-args { background: #161a2c; color: #9aa0b4; }
+        body.dark-theme .tool-card-result { color: #c5c9d6; }
+        body.dark-theme .tool-card.failed .tool-card-result { color: #ef8f8f; }
+        body.dark-theme .confirm-dialog { background: #22263c; }
+        body.dark-theme .confirm-title { color: #e0e4f0; }
+        body.dark-theme .confirm-msg { color: #b6bccf; }
+        body.dark-theme .confirm-reject { background: #2e3248; color: #c5c9d6; }
+        body.dark-theme .confirm-reject:hover { background: #3a3f5a; }
+
         /* Input Area - 优化版 */
         .input-area {
             padding: 14px 20px 16px;
@@ -1667,6 +1901,18 @@
 
     <!-- Toast Container -->
     <div class="toast-container" id="toastContainer"></div>
+
+    <!-- T7.2 写操作确认弹窗（SSE {type:confirm}） -->
+    <div class="confirm-overlay" id="confirmModal">
+        <div class="confirm-dialog">
+            <div class="confirm-title">⚠️ 需要确认操作 <span class="confirm-op" id="confirmOp"></span></div>
+            <div class="confirm-msg" id="confirmMsg"></div>
+            <div class="confirm-actions">
+                <button class="confirm-reject" id="confirmRejectBtn">拒绝</button>
+                <button class="confirm-approve" id="confirmApproveBtn">批准执行</button>
+            </div>
+        </div>
+    </div>
     
     <!-- Skills Dialog -->
     <div class="dialog-overlay" id="skillsDialog">
@@ -2437,6 +2683,38 @@
         }, 3000);
     }
 
+    // ==================== T7.2 写操作确认弹窗 ====================
+    var pendingConfirm = null;
+
+    function showConfirmModal(operation, token, message) {
+        pendingConfirm = { token: token };
+        document.getElementById('confirmOp').textContent = operation || '';
+        document.getElementById('confirmMsg').textContent = message || '';
+        document.getElementById('confirmModal').classList.add('show');
+    }
+
+    function resolveConfirm(action) {
+        if (!pendingConfirm) return;
+        var token = pendingConfirm.token;
+        pendingConfirm = null;
+        document.getElementById('confirmModal').classList.remove('show');
+        // 发送批准/拒绝到后端 /confirm
+        fetch(API_BASE + '/confirm', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ confirmToken: token, action: action })
+        }).catch(function(e) {
+            showMessage('确认请求发送失败: ' + e.message, 'error');
+        });
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+        var approveBtn = document.getElementById('confirmApproveBtn');
+        var rejectBtn = document.getElementById('confirmRejectBtn');
+        if (approveBtn) approveBtn.addEventListener('click', function() { resolveConfirm('approve'); });
+        if (rejectBtn) rejectBtn.addEventListener('click', function() { resolveConfirm('reject'); });
+    });
+
     function formatTime() {
         return new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
     }
@@ -2592,6 +2870,35 @@
             .replace(/([{}\[\]])/g, '<span class="ai-json-bracket">$1</span>');
     }
 
+    /** T7.2.2 工具进度卡片渲染 */
+    function renderToolCard(tc) {
+        if (!tc) return '';
+        var statusIcon = tc.status === 'running' ? '⏳' : (tc.status === 'failed' ? '❌' : '✅');
+        var statusClass = tc.status === 'running' ? 'running' : (tc.status === 'failed' ? 'failed' : 'success');
+        var statusLabel = tc.status === 'running' ? '调用中…' : (tc.status === 'failed' ? '失败' : '完成');
+        var argsHtml = '';
+        if (tc.args) {
+            try { argsHtml = escapeHtml(typeof tc.args === 'string' ? tc.args : JSON.stringify(tc.args)); }
+            catch (e) { argsHtml = ''; }
+        }
+        var html = '<div class="tool-card ' + statusClass + '">';
+        html += '<div class="tool-card-header"><span class="tool-card-icon">' + statusIcon + '</span>';
+        html += '<span class="tool-card-name">' + escapeHtml(tc.name || '') + '</span>';
+        html += '<span class="tool-card-status">' + statusLabel + '</span></div>';
+        if (argsHtml) html += '<div class="tool-card-args">' + argsHtml + '</div>';
+        if (tc.status !== 'running' && (tc.summary || tc.error)) {
+            html += '<div class="tool-card-result">' + escapeHtml(tc.status === 'failed' ? (tc.error || '执行失败') : tc.summary) + '</div>';
+        }
+        html += '</div>';
+        return html;
+    }
+
+    /** 从工具调用轮文本中剥离 <tool_call>...</tool_call> XML 标记（前端收进处理容器时用） */
+    function stripToolCallXml(text) {
+        if (!text) return '';
+        return text.replace(/<tool_call>[\s\S]*?<\/tool_call>/g, '');
+    }
+
     function renderMessages() {
         var list = document.getElementById('messagesList');
         var empty = document.getElementById('emptyState');
@@ -2607,27 +2914,32 @@
         var html = '';
         for (var i = 0; i < state.messages.length; i++) {
             var msg = state.messages[i];
-            html += '<div class="message ' + msg.role + '">';
+            html += '<div class="message ' + msg.role + '" data-msg-index="' + i + '">';
             html += '<div class="message-avatar">' + (msg.role === 'user' ? 'U' : 'AI') + '</div>';
             html += '<div class="message-content">';
             html += '<div class="message-header">';
             html += '<span class="message-sender">' + (msg.role === 'user' ? '用户' : 'AI 助手') + '</span>';
             html += '<span class="message-time">' + msg.time + '</span>';
             html += '</div>';
-            if (msg.isGenerating && (!msg.content || msg.content.length === 0)) {
-                // 尚无内容：显示"正在思考"
-                html += '<div class="message-body"><span class="generating-indicator">AI 正在思考</span><span class="typing-cursor"></span></div>';
-            } else if (msg.isUploadProgress) {
+            // T7.2.3 处理过程容器（reasoning + 中间文本 + 工具卡片，可折叠）
+            html += buildProcessContainerHtml(msg);
+
+            if (msg.isUploadProgress) {
                 // System-generated upload progress: render HTML directly (no user input)
                 html += '<div class="message-body">' + msg.content + '</div>';
             } else {
-                // Smart content rendering for AI responses (JSON/MD/Mermaid/SVG/HTML)
-                // User messages always escaped. 生成中且已有内容：正常渲染内容 + 光标（边生成边显示）
-                html += '<div class="message-body">' + renderContent(msg.content, msg.role);
-                if (msg.isGenerating) {
-                    html += '<span class="typing-cursor"></span>';
+                // T7.2.1 真流式：正文 = content（最终） || liveText（生成中的当前轮）
+                var bodyText = (msg.content != null && msg.content.length > 0) ? msg.content : (msg.liveText || '');
+                if (msg.isGenerating && (!bodyText || bodyText.length === 0)) {
+                    // 尚无内容：显示"正在思考"
+                    html += '<div class="message-body"><span class="generating-indicator">AI 正在思考</span><span class="typing-cursor"></span></div>';
+                } else if (msg.isGenerating) {
+                    // 生成中：轻量纯文本渲染（增量更新友好，不重跑 markdown/mermaid）
+                    html += '<div class="message-body">' + renderStreamingText(bodyText) + '<span class="typing-cursor"></span></div>';
+                } else {
+                    // 已完成：一次性智能渲染（JSON/MD/Mermaid/SVG/HTML）
+                    html += '<div class="message-body">' + renderContent(bodyText, msg.role) + '</div>';
                 }
-                html += '</div>';
             }
             if (msg.isRelogin) {
                 html += '<div class="relogin-prompt"><p>请重新登录以继续使用</p><button onclick="showLoginScreen()">重新登录</button></div>';
@@ -2644,6 +2956,110 @@
         setTimeout(function() {
             if (area) area.scrollTop = area.scrollHeight;
         }, 0);
+    }
+
+    /** T7.2.3 构建处理过程容器 HTML（reasoning + 中间文本 + 工具卡片，可折叠） */
+    function buildProcessContainerHtml(msg) {
+        if (msg.role !== 'assistant'
+                || (!msg.reasoning
+                    && !(msg.intermediate && msg.intermediate.length)
+                    && !(msg.toolCalls && msg.toolCalls.length))) {
+            return '';
+        }
+        var toolCount = (msg.toolCalls || []).length;
+        var html = '<details class="process-container"' + (msg.isGenerating ? ' open' : '') + '>';
+        html += '<summary class="process-summary">⚙️ 处理过程' +
+                (toolCount ? ' · ' + toolCount + ' 步工具调用' : '') +
+                '<span class="process-status">' + (msg.isGenerating ? '处理中…' : '已完成') + '</span></summary>';
+        html += '<div class="process-body">';
+        if (msg.reasoning) {
+            html += '<div class="reasoning-text">' + escapeHtml(msg.reasoning) + '</div>';
+        }
+        (msg.intermediate || []).forEach(function(t) {
+            if (t && t.trim()) html += '<div class="intermediate-text">' + escapeHtml(t) + '</div>';
+        });
+        (msg.toolCalls || []).forEach(function(tc) {
+            html += renderToolCard(tc);
+        });
+        html += '</div></details>';
+        return html;
+    }
+
+    /** T7.2.1 生成中轻量渲染：纯文本转义 + 换行（不重跑 markdown/mermaid，流式不卡顿） */
+    function renderStreamingText(text) {
+        if (!text) return '';
+        return escapeHtml(text).replace(/\n/g, '<br>');
+    }
+
+    // ==================== T7.2.1 增量流式渲染（修复全列表刷新） ====================
+    // 原实现每个流式分片都 renderMessages() 重建全部消息 → "疯狂刷新"。
+    // 现改为：仅更新当前消息的 DOM 节点，并用 requestAnimationFrame 节流到 ~60fps。
+
+    var streamRenderPending = false;
+
+    function scheduleStreamingUpdate(idx) {
+        if (streamRenderPending) return;
+        streamRenderPending = true;
+        requestAnimationFrame(function() {
+            streamRenderPending = false;
+            updateStreamingMessage(idx);
+        });
+    }
+
+    function updateStreamingMessage(idx) {
+        var list = document.getElementById('messagesList');
+        var msgEl = list.children[idx];
+        if (!msgEl) return;
+        var msg = state.messages[idx];
+        if (!msg) return;
+        var contentEl = msgEl.querySelector('.message-content');
+        if (!contentEl) return;
+
+        // 1) 处理过程容器：有内容则存在/更新，无则移除
+        var processHtml = buildProcessContainerHtml(msg);
+        var processEl = msgEl.querySelector('.process-container');
+        if (processHtml) {
+            var tmp = document.createElement('div');
+            tmp.innerHTML = processHtml;
+            var newProcessEl = tmp.firstChild;
+            if (processEl) {
+                // 完成后保留用户已展开状态；生成中强制展开
+                if (!msg.isGenerating && processEl.hasAttribute('open')) {
+                    newProcessEl.setAttribute('open', '');
+                }
+                processEl.parentNode.replaceChild(newProcessEl, processEl);
+            } else {
+                // 插到 message-body 之前
+                contentEl.insertBefore(newProcessEl, msgEl.querySelector('.message-body'));
+            }
+        } else if (processEl) {
+            processEl.parentNode.removeChild(processEl);
+        }
+
+        // 2) 正文节点：只更新当前消息的 body（轻量渲染；保持 body 节点稳定，仅换 innerHTML 不重建节点）
+        var bodyText = (msg.content != null && msg.content.length > 0) ? msg.content : (msg.liveText || '');
+        var bodyEl = msgEl.querySelector('.message-body');
+        var bodyInnerHtml;
+        if (msg.isUploadProgress) {
+            bodyInnerHtml = msg.content;
+        } else if (msg.isGenerating && (!bodyText || bodyText.length === 0)) {
+            bodyInnerHtml = '<span class="generating-indicator">AI 正在思考</span><span class="typing-cursor"></span>';
+        } else if (msg.isGenerating) {
+            bodyInnerHtml = renderStreamingText(bodyText) + '<span class="typing-cursor"></span>';
+        } else {
+            bodyInnerHtml = renderContent(bodyText, msg.role);
+        }
+        if (bodyEl) {
+            bodyEl.innerHTML = bodyInnerHtml;
+        } else {
+            var tmp2 = document.createElement('div');
+            tmp2.innerHTML = '<div class="message-body">' + bodyInnerHtml + '</div>';
+            contentEl.appendChild(tmp2.firstChild);
+        }
+
+        // 3) 生成中跟随底部
+        var area = document.getElementById('messagesArea');
+        if (area) area.scrollTop = area.scrollHeight;
     }
 
     function renderSessions() {
@@ -2700,13 +3116,33 @@
         renderSessions();
     }
 
-    /** 加载指定会话的历史消息 */
+    /** 加载指定会话的历史消息（T7.3：reasoning 消息合并到其后的 assistant，灰色小字回看展示） */
     async function loadSessionMessages(sessionId) {
         var data = await API.getSessionMessages(sessionId);
         if (!data || !data.data) return;
-        state.messages = (data.data || []).map(function(m) {
-            return { role: m.role, content: m.content || '', time: m.createdAt || '' };
+        var msgs = [];
+        var pendingReasoning = '';
+        (data.data || []).forEach(function(m) {
+            if (m.role === 'reasoning') {
+                // reasoning 只展示用（灰色小字），回放剥离不回灌模型（后端 loadSessionHistory 已排除）
+                pendingReasoning += (m.content || '');
+                return;
+            }
+            var entry = {
+                role: m.role,
+                content: m.content || '',
+                time: m.createdAt || '',
+                reasoning: '',
+                intermediate: [],
+                toolCalls: []
+            };
+            if (m.role === 'assistant' && pendingReasoning) {
+                entry.reasoning = pendingReasoning;
+                pendingReasoning = '';
+            }
+            msgs.push(entry);
         });
+        state.messages = msgs;
         renderMessages();
     }
 
@@ -2788,8 +3224,17 @@
         state.messages.push({ role: 'user', content: content, time: formatTime() });
         renderMessages();
 
-        // Create assistant message placeholder
-        state.messages.push({ role: 'assistant', content: '', time: formatTime(), isGenerating: true });
+        // Create assistant message placeholder（T7.2：新增 liveText/reasoning/toolCalls 等流式状态字段）
+        state.messages.push({
+            role: 'assistant',
+            content: '',
+            liveText: '',
+            reasoning: '',
+            intermediate: [],
+            toolCalls: [],
+            time: formatTime(),
+            isGenerating: true
+        });
         var assistantIndex = state.messages.length - 1;
         renderMessages();
 
@@ -2856,22 +3301,61 @@
 
                     try {
                         var event = JSON.parse(trimmed);
-                        if (event.type === 'chunk') {
+                        var msg = state.messages[assistantIndex];
+                        // T7.2：真流式事件（text/reasoning/tool_call/tool_result/retry/done/confirm）
+                        if (event.type === 'text' || event.type === 'chunk') {
+                            // text = 新协议真流式分片；chunk = 兼容旧路径分片
                             fullContent += event.content;
-                            state.messages[assistantIndex] = {
-                                role: 'assistant',
-                                content: fullContent,
-                                time: formatTime(),
-                                isGenerating: true
-                            };
-                            renderMessages();
+                            msg.liveText = (msg.liveText || '') + event.content;
+                            // 增量更新当前消息节点（节流），不重建全列表
+                            scheduleStreamingUpdate(assistantIndex);
+                        } else if (event.type === 'reasoning') {
+                            msg.reasoning = (msg.reasoning || '') + event.content;
+                            scheduleStreamingUpdate(assistantIndex);
+                        } else if (event.type === 'tool_call') {
+                            // 当前轮文本收进处理容器（剥离 XML），新建工具卡片
+                            var stripped = stripToolCallXml(msg.liveText || '');
+                            if (stripped && stripped.trim()) {
+                                msg.intermediate.push(stripped);
+                            }
+                            msg.liveText = '';
+                            msg.toolCalls.push({
+                                name: event.name || '',
+                                args: event.arguments || null,
+                                status: 'running',
+                                summary: '',
+                                error: ''
+                            });
+                            scheduleStreamingUpdate(assistantIndex);
+                        } else if (event.type === 'tool_result') {
+                            // 更新同名最后一张运行中卡片
+                            for (var ti = msg.toolCalls.length - 1; ti >= 0; ti--) {
+                                if (msg.toolCalls[ti].name === event.name && msg.toolCalls[ti].status === 'running') {
+                                    msg.toolCalls[ti].status = event.success ? 'success' : 'failed';
+                                    msg.toolCalls[ti].summary = event.summary || '';
+                                    msg.toolCalls[ti].error = event.error || '';
+                                    break;
+                                }
+                            }
+                            // 新一轮开始：后续 text 从新的 liveText 开始
+                            msg.liveText = '';
+                            scheduleStreamingUpdate(assistantIndex);
+                        } else if (event.type === 'retry') {
+                            // 失败重试：清空当前消息的流式过程内容，重新开始
+                            msg.liveText = '';
+                            msg.reasoning = '';
+                            msg.intermediate = [];
+                            msg.toolCalls = [];
+                            fullContent = '';
+                            scheduleStreamingUpdate(assistantIndex);
                         } else if (event.type === 'done') {
-                            state.messages[assistantIndex] = {
-                                role: 'assistant',
-                                content: event.fullContent || fullContent,
-                                time: formatTime()
-                            };
+                            msg.content = event.fullContent || fullContent;
+                            msg.liveText = '';
+                            msg.isGenerating = false;
+                            // 结束：一次性全量渲染（智能 markdown/mermaid）
                             renderMessages();
+                        } else if (event.type === 'confirm') {
+                            showConfirmModal(event.operation, event.confirmToken, event.message);
                         } else if (event.type === 'error') {
                             streamError = event.message;
                             if (handleAuthError(event.message)) { isSessionExpired = true; return; }
@@ -2888,33 +3372,31 @@
                 if (trimmed.startsWith('data:')) trimmed = trimmed.substring(5).trimStart();
                 try {
                     var lastEvent = JSON.parse(trimmed);
-                    if (lastEvent.type === 'chunk') {
+                    var lastMsg = state.messages[assistantIndex];
+                    if (lastEvent.type === 'text' || lastEvent.type === 'chunk') {
                         fullContent += lastEvent.content;
-                        state.messages[assistantIndex] = {
-                            role: 'assistant', content: fullContent, time: formatTime(), isGenerating: true
-                        };
-                        renderMessages();
+                        lastMsg.liveText = (lastMsg.liveText || '') + lastEvent.content;
+                        scheduleStreamingUpdate(assistantIndex);
                     } else if (lastEvent.type === 'done') {
-                        state.messages[assistantIndex] = {
-                            role: 'assistant', content: lastEvent.fullContent || fullContent, time: formatTime()
-                        };
+                        lastMsg.content = lastEvent.fullContent || fullContent;
+                        lastMsg.liveText = '';
+                        lastMsg.isGenerating = false;
+                        renderMessages();
                     }
                 } catch (e) {}
             }
         } catch (err) {
-            if (err.name === 'AbortError') {
-                state.messages[assistantIndex] = {
-                    role: 'assistant',
-                    content: fullContent ? fullContent + '\n(生成已中断)' : '(生成已中断)',
-                    time: formatTime()
-                };
-                showMessage('已停止生成', 'info');
-            } else {
-                state.messages[assistantIndex] = {
-                    role: 'assistant',
-                    content: '请求失败: ' + err.message,
-                    time: formatTime()
-                };
+            var curMsg = state.messages[assistantIndex];
+            if (curMsg) {
+                curMsg.isGenerating = false;
+                curMsg.liveText = '';
+                curMsg.time = formatTime();
+                if (err.name === 'AbortError') {
+                    curMsg.content = (curMsg.content || fullContent || '') + '\n(生成已中断)';
+                    showMessage('已停止生成', 'info');
+                } else {
+                    curMsg.content = '请求失败: ' + err.message;
+                }
             }
         }
 

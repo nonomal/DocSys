@@ -1,0 +1,245 @@
+package com.DocSystem.agent.llm;
+
+import com.alibaba.fastjson.JSONObject;
+import com.sun.net.httpserver.HttpExchange;
+import com.sun.net.httpserver.HttpServer;
+
+import java.io.OutputStream;
+import java.lang.reflect.Field;
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+
+import okhttp3.OkHttpClient;
+
+/**
+ * T7.1.1 真流式时序护栏：用本地 HTTP 服务器模拟 OpenAI SSE 流（每分片延迟 250ms），
+ * 验证 {@link LLMService#streamChatChunks} 返回的迭代器是【渐进到达】而非【一次性缓冲后爆发】。
+ *
+ * <p>通过反射注入 LLMService 私有字段（endpoint/model/apiKey/httpClient），无 Spring 依赖。</p>
+ */
+public class TestStreamChatChunks {
+
+    private static int pass = 0;
+    private static int fail = 0;
+
+    public static void main(String[] args) throws Exception {
+        testProgressiveStreaming();
+        testReasoningSeparationInStream();
+        testErrorStatusThrows();
+        System.out.println("\n======== TestStreamChatChunks: " + pass + " passed, " + fail + " failed ========");
+        if (fail > 0) {
+            System.exit(1);
+        }
+    }
+
+    private static void check(String name, boolean cond) {
+        if (cond) {
+            pass++;
+            System.out.println("[PASS] " + name);
+        } else {
+            fail++;
+            System.out.println("[FAIL] " + name);
+        }
+    }
+
+    /** 构造一个可用的 LLMService（反射注入私有字段） */
+    private static LLMService newLlmService() throws Exception {
+        LLMService svc = new LLMService();
+        setField(svc, "endpoint", "http://127.0.0.1:1");
+        setField(svc, "defaultModel", "test-model");
+        setField(svc, "apiKey", "");
+        setField(svc, "temperature", 0.7);
+        setField(svc, "maxTokens", 2048);
+        setField(svc, "connectTimeout", 30);
+        setField(svc, "chatTimeout", 60);
+        setField(svc, "embeddingTimeout", 10);
+        setField(svc, "backupEndpoint", "");
+        setField(svc, "backupModel", "");
+        setField(svc, "hasBackup", false);
+        setField(svc, "httpClient", new OkHttpClient());
+        return svc;
+    }
+
+    private static void setField(Object target, String name, Object value) throws Exception {
+        Field f = target.getClass().getDeclaredField(name);
+        f.setAccessible(true);
+        f.set(target, value);
+    }
+
+    private static List<Map<String, String>> messages(String content) {
+        List<Map<String, String>> msgs = new ArrayList<>();
+        Map<String, String> sys = new HashMap<>();
+        sys.put("role", "system");
+        sys.put("content", "test system");
+        msgs.add(sys);
+        Map<String, String> user = new HashMap<>();
+        user.put("role", "user");
+        user.put("content", content);
+        msgs.add(user);
+        return msgs;
+    }
+
+    /** 模拟 OpenAI SSE 服务器：每分片间隔 delayMs，先 reasoning 后 text，最后 [DONE] */
+    private static HttpServer startSseServer(int delayMs, boolean includeReasoning) throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/v1/proxy/v1/chat/completions", exchange -> {
+            exchange.getResponseHeaders().set("Content-Type", "text/event-stream");
+            exchange.getResponseHeaders().set("Transfer-Encoding", "chunked");
+            exchange.sendResponseHeaders(200, 0);
+            OutputStream out = exchange.getResponseBody();
+            try {
+                if (includeReasoning) {
+                    sendSseLine(out, reasoningChunk("思考"));
+                    Thread.sleep(delayMs);
+                    sendSseLine(out, reasoningChunk("中"));
+                    Thread.sleep(delayMs);
+                }
+                sendSseLine(out, textChunk("你"));
+                Thread.sleep(delayMs);
+                sendSseLine(out, textChunk("好"));
+                Thread.sleep(delayMs);
+                sendSseLine(out, textChunk("！"));
+                Thread.sleep(delayMs);
+                sendSseLine(out, doneChunk());
+                out.flush();
+            } catch (Exception e) {
+                // ignore
+            } finally {
+                try { out.close(); } catch (Exception ignored) {}
+            }
+        });
+        server.start();
+        return server;
+    }
+
+    private static void sendSseLine(OutputStream out, String data) throws Exception {
+        out.write(("data: " + data + "\n\n").getBytes(StandardCharsets.UTF_8));
+        out.flush();
+    }
+
+    private static String textChunk(String content) {
+        JSONObject delta = new JSONObject();
+        delta.put("content", content);
+        JSONObject choice = new JSONObject();
+        choice.put("delta", delta);
+        choice.put("finish_reason", null);
+        JSONObject obj = new JSONObject();
+        obj.put("choices", new Object[]{choice});
+        return obj.toJSONString();
+    }
+
+    private static String reasoningChunk(String content) {
+        JSONObject delta = new JSONObject();
+        delta.put("reasoning_content", content);
+        JSONObject choice = new JSONObject();
+        choice.put("delta", delta);
+        choice.put("finish_reason", null);
+        JSONObject obj = new JSONObject();
+        obj.put("choices", new Object[]{choice});
+        return obj.toJSONString();
+    }
+
+    private static String doneChunk() {
+        JSONObject delta = new JSONObject();
+        JSONObject choice = new JSONObject();
+        choice.put("delta", delta);
+        choice.put("finish_reason", "stop");
+        JSONObject obj = new JSONObject();
+        obj.put("choices", new Object[]{choice});
+        return obj.toJSONString();
+    }
+
+    private static void testProgressiveStreaming() throws Exception {
+        int delayMs = 250;
+        HttpServer server = startSseServer(delayMs, false);
+        try {
+            int port = server.getAddress().getPort();
+            LLMService svc = newLlmService();
+            ResolvedLlmConfig resolved = new ResolvedLlmConfig(
+                    "http://127.0.0.1:" + port + "/v1/proxy", "test-model", null, "test");
+
+            long t0 = System.currentTimeMillis();
+            Iterator<StreamChunk> it = svc.streamChatChunks(messages("hi"), resolved);
+
+            List<Long> arrivalMs = new ArrayList<>();
+            List<String> texts = new ArrayList<>();
+            while (it.hasNext()) {
+                StreamChunk c = it.next();
+                if (c.isDone()) break;
+                arrivalMs.add(System.currentTimeMillis() - t0);
+                if (c.isText()) texts.add(c.content);
+            }
+            long total = System.currentTimeMillis() - t0;
+
+            // 3 个 text 分片，每个间隔 250ms
+            check("progressive: 3 text chunks received", texts.size() == 3);
+            check("progressive: content correct", texts.toString().equals("[你, 好, ！]"));
+            // 关键：分片是渐进到达的（第 3 片到达时间应 ≥ 2*delayMs，且第 1 片远早于总耗时）
+            check("progressive: first chunk arrived early (t1 < 400ms)", arrivalMs.get(0) < 400);
+            check("progressive: last chunk arrived late (t3 >= 500ms)", arrivalMs.get(2) >= 2L * delayMs);
+            check("progressive: total elapsed >= 700ms (not burst)", total >= 3L * delayMs - 100);
+            System.out.println("  [timing] arrivals(ms)=" + arrivalMs + " total=" + total + "ms");
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    private static void testReasoningSeparationInStream() throws Exception {
+        int delayMs = 200;
+        HttpServer server = startSseServer(delayMs, true);
+        try {
+            int port = server.getAddress().getPort();
+            LLMService svc = newLlmService();
+            ResolvedLlmConfig resolved = new ResolvedLlmConfig(
+                    "http://127.0.0.1:" + port + "/v1/proxy", "test-model", null, "test");
+
+            Iterator<StreamChunk> it = svc.streamChatChunks(messages("hi"), resolved);
+            List<String> reasoning = new ArrayList<>();
+            List<String> texts = new ArrayList<>();
+            while (it.hasNext()) {
+                StreamChunk c = it.next();
+                if (c.isDone()) break;
+                if (c.isReasoning()) reasoning.add(c.content);
+                if (c.isText()) texts.add(c.content);
+            }
+            check("reasoning: 2 reasoning chunks", reasoning.size() == 2);
+            check("reasoning: content correct", reasoning.toString().equals("[思考, 中]"));
+            check("reasoning: separated from text", texts.toString().equals("[你, 好, ！]"));
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    private static void testErrorStatusThrows() throws Exception {
+        // 非 200 → 抛异常（调用方回退非流式）
+        HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/v1/proxy/v1/chat/completions", exchange -> {
+            byte[] body = "{\"error\":\"bad\"}".getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(500, body.length);
+            OutputStream out = exchange.getResponseBody();
+            out.write(body);
+            out.close();
+        });
+        server.start();
+        try {
+            int port = server.getAddress().getPort();
+            LLMService svc = newLlmService();
+            ResolvedLlmConfig resolved = new ResolvedLlmConfig(
+                    "http://127.0.0.1:" + port + "/v1/proxy", "test-model", null, "test");
+            boolean threw = false;
+            try {
+                svc.streamChatChunks(messages("hi"), resolved);
+            } catch (Exception e) {
+                threw = true;
+            }
+            check("error-status: throws (caller can fallback)", threw);
+        } finally {
+            server.stop(0);
+        }
+    }
+}

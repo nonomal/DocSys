@@ -40,11 +40,27 @@ public class ConversationHistoryService {
     /** 保存一轮问答（user + assistant），并更新会话标题/活跃时间。
      *  内部兜底：历史保存失败只记日志，绝不向上抛（避免打断主响应流程）。 */
     public void saveExchange(String sessionId, String userMessage, String assistantMessage) {
+        saveExchange(sessionId, userMessage, assistantMessage, null);
+    }
+
+    /**
+     * 保存一轮问答（user + reasoning[可选] + assistant），并更新会话标题/活跃时间。
+     *
+     * <p>T7.3 reasoning 持久化：reasoning 以 role="reasoning" 消息落库（灰色小字回看展示）；
+     * 续接会话加载历史时 loadSessionHistory 只取 user/assistant，reasoning 自动剥离不回灌模型。</p>
+     *
+     * @param reasoning 思考过程文本（可为 null/空 → 不落库）
+     */
+    public void saveExchange(String sessionId, String userMessage, String assistantMessage,
+                             String reasoning) {
         if (sessionId == null || sessionId.isEmpty() || userMessage == null) {
             return;
         }
         try {
             appendMessage(sessionId, "user", userMessage);
+            if (reasoning != null && !reasoning.isEmpty()) {
+                appendMessage(sessionId, "reasoning", reasoning);
+            }
             if (assistantMessage != null && !assistantMessage.isEmpty()) {
                 appendMessage(sessionId, "assistant", assistantMessage);
             }
