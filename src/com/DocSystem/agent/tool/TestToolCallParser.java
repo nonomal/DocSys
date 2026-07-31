@@ -33,6 +33,9 @@ public class TestToolCallParser {
         testAnthropicXmlWithParametersJson();
         testAnthropicXmlInvalid();
         testMalformedClosingTag();
+        testPluralToolCalls();
+        testMixedSingularPlural();
+        testPluralMalformed();
         System.out.println("\n======== TestToolCallParser: " + pass + " passed, " + fail + " failed ========");
         if (fail > 0) {
             System.exit(1);
@@ -142,5 +145,42 @@ public class TestToolCallParser {
         // 输出含 <tool_call 标记但无法解析 → 按畸形处理（重试），避免把残缺调用当最终回答
         check("stray <tool_call marker -> null (retry)",
                 ToolCallParser.parse("请使用 <tool_call 格式调用工具") == null);
+    }
+
+    /** T8.1 容错：模型漂移输出复数包装 <tool_calls>...</tool_calls>（Anthropic 风格） */
+    private static void testPluralToolCalls() {
+        String out = "<tool_calls>\n{\"name\":\"list_repos\",\"arguments\":{}}\n</tool_calls>";
+        List<ToolCall> calls = ToolCallParser.parse(out);
+        check("plural <tool_calls>: parsed 1 call", calls != null && calls.size() == 1);
+        if (calls != null && !calls.isEmpty()) {
+            check("plural: name=list_repos", "list_repos".equals(calls.get(0).name));
+            check("plural: args empty", calls.get(0).arguments != null && calls.get(0).arguments.isEmpty());
+        }
+        check("containsToolCall(plural) true", ToolCallParser.containsToolCall(out));
+        // 复数带参
+        String out2 = "<tool_calls>\n{\"name\":\"get_doc\",\"arguments\":{\"vid\":8,\"docId\":123}}\n</tool_calls>";
+        List<ToolCall> calls2 = ToolCallParser.parse(out2);
+        check("plural with args: parsed", calls2 != null && calls2.size() == 1
+                && calls2.get(0).arguments.getInteger("vid") == 8
+                && calls2.get(0).arguments.getLong("docId") == 123L);
+    }
+
+    /** 混合：复数包装 + 单数并列 */
+    private static void testMixedSingularPlural() {
+        String out = "<tool_calls>{\"name\":\"list_repos\",\"arguments\":{}}</tool_calls>"
+                + "\n<tool_call>{\"name\":\"get_repos\",\"arguments\":{\"vid\":1}}</tool_call>";
+        List<ToolCall> calls = ToolCallParser.parse(out);
+        check("mixed singular+plural: 2 calls", calls != null && calls.size() == 2);
+        if (calls != null && calls.size() == 2) {
+            check("mixed: first list_repos", "list_repos".equals(calls.get(0).name));
+            check("mixed: second get_repos", "get_repos".equals(calls.get(1).name));
+        }
+    }
+
+    /** 复数未闭合 → 畸形（null 重试），而非当最终回答 */
+    private static void testPluralMalformed() {
+        String out = "<tool_calls>\n{\"name\":\"list_repos\",\"arguments\":{}}";
+        List<ToolCall> calls = ToolCallParser.parse(out);
+        check("plural unclosed -> null (retry)", calls == null);
     }
 }

@@ -556,11 +556,13 @@ public class DocSysClient {
     public Map<String, Object> getDoc(Integer reposId, Long docId, String path, String name) throws Exception {
         String url = baseUrl + "/Doc/getDoc.do";
         Map<String, String> params = new HashMap<>();
-        // T5.3 修复：DocSystem /Doc/getDoc.do 的参数名是 reposId（不是 vid）
+        // T5.3/T8.1 修复：DocSystem /Doc/getDoc.do 的参数名是 reposId（不是 vid）
         if (reposId != null) params.put("reposId", reposId.toString());
         if (docId != null) params.put("docId", docId.toString());
         if (path != null) params.put("path", path);
         if (name != null) params.put("name", name);
+        // T8.1：docType=1 让服务端返回 docText（文本/Office 内容）；服务端 docType=null 曾触发 NPE 已修
+        params.put("docType", "1");
 
         Response response = postForm(url, params, sessionCookie);
         try {

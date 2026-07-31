@@ -198,6 +198,14 @@ say you are an assistant in DocSys and focus on the user's needs.
 - ⚠️ **DocSystem 核心 bug**（非 Agent）：`getDoc.do` 全 500 NPE（docSysGetDoc 查库空）；`createDocShare.do` 端点不存在。已记录待修。
 - 护栏：TestToolCallParser 16→23（+7）；**护栏全景 = 29+23+36+26+52+9 = 175 全绿**。
 
+### 5.12 T8.1 修复 getDoc.do NPE（2026-07-31 完成）
+- **DocController.getDoc.do NPE 两处修复**：4301 行 `FileUtil.getFileSuffix(name)` 空指针 → `(name != null)` 守卫；4301/4324 行 `docType == 1/2/3` 拆箱 NPE → `Integer.valueOf(n).equals(docType)` 安全比较。
+- **DocSysClient.getDoc 加 `docType=1`**：让服务端返回 docText（实测 buildDocSystem.bat docText=4226 字符；记录1.docx docText=123 字符）。`get_doc` 工具 schema 改 required=[vid,path,name] + 描述引导"必须同时传 path 和 name（来自 list_docs 结果）"。
+- **端到端多步链验收通过**：真实 LLM `list_repos → list_docs（vid=8, path=DocSys）→ get_doc（记录1.docx）→ 总结` 完整跑通，SSE turns=4/toolCalls=3，正确总结 DTU 唤醒配置要点。
+- **⚠️ 编译部署教训**：Spring Controller 编译必须加 `-parameters -g`（否则 `IllegalArgumentException: Name for argument type not available`）；Agent 包内文件不需要。
+- **⚠️ 部署/热重载教训（重要）**：`wtpwebapps` 类文件时间戳/哈希与工作区一致，但 Tomcat JVM 仍可能运行旧类（热重载未生效）。**可靠验证手段**：在循环里加文件转储日志（本次用 `D:/tmp_loop_debug.log`）确认运行时真实行为；强制触发重载 = 重新复制 .class（更新时间戳）。
+- **解析器加固（验收中发现）**：模型漂移输出**复数 `<tool_calls>`**（Anthropic 风格）→ 旧正则只匹配单数被当最终回答。修复：`TOOL_CALL_PATTERN` 改 `<(tool_call|tool_calls)>(.*?)</(tool_call|tool_calls)>`；`looksLikeMalformedToolCall` 增补 `<tool_calls`/`</tool_calls>`。TestToolCallParser 23→**32 全绿**。
+
 ### 5.5 已验证的事实（改造依据）
 - 意图识别**不只支持 chat**：多层管道（复合命令 → LLM NLU → Skill trigger → regex → chat 兜底），支持 list_repos/list_docs/search/generate_summary/search_and_answer/whoami/help/web_search 等 10+ 类。
 - LLM 当前只当分类器 + 兜底对话用，**无工具选择权、无多步推理、无失败重试**（用户确认这是要升级的缺陷）。
@@ -207,9 +215,10 @@ say you are an assistant in DocSys and focus on the user's needs.
 
 ## 6. 下一步 + 剩余大块
 
-- **当前里程碑**：T7 流式体验升级**全部完成（2026-07-31 部署验收通过）**——真流式（惰性迭代器）+ reasoning 展示 + 工具卡片 + 可折叠容器 + 确认弹窗，三类场景实测通过。
-- **后续候选（P0/P1）**：Memory 工具（持久化用户偏好）、Web Search 工具、Warm 摘要压缩、Step 审计、Admin 配置 system prompt、旧路径 `waitForConfirmation` approve/拒绝 隐患修复。
-- **⚠️ 回退开关**：`-Dagent.tool-loop.enabled=false` 或 Spring 属性可一键回退旧路径。
+- **当前里程碑**：T7 流式 + T5.3 多步编排 + **T8.1 getDoc.do NPE 修复全部完成（2026-07-31）**。
+- **决策（2026-07-31，用户明确）**：旧路径（decomposeTask/SubAgent/LLMIntentParser 等）经评估**仍有使用，保留不动**（不删除）；**取消 T6.1/T6.2 新旧对比测试**；T6.4 长尾回归降级为可选（旧路径保留为兜底，无能力损失）。
+- **下一步 = T8 后续增强（已排期按序执行）**：~~T8.1 修 getDoc.do NPE~~（✅ 完成）→ **T8.2 修 create_doc_share 端点** → T8.3 Memory 工具 → T8.4 Web Search → T8.5 Step 审计 → T8.6 Admin 配置提示词。
+- **⚠️ 回退开关**：`-Dagent.tool-loop.enabled=false` 或 Spring 属性可一键回退旧路径（旧路径保留即此开关仍有效）。
 
 ### 关键环境/命令（勿另搞一套）
 - 编译器：`"C:\Program Files\Java\jdk1.8.0_162\bin\javac" -encoding UTF-8 -cp "WebRoot/WEB-INF/classes;WebRoot/WEB-INF/lib/*" -d WebRoot/WEB-INF/classes <改动的.java>`

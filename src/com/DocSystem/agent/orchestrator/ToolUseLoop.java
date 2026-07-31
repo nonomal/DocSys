@@ -315,8 +315,7 @@ public class ToolUseLoop {
      * 流式单轮执行：逐分片回调 sink（reasoning → onReasoning；text → onText），
      * 聚合完整响应文本返回（供轮末解析 tool_call）。
      */
-    private String runStreamingTurn(List<Map<String, String>> messages, StreamSink sink) throws Exception {
-        StringBuilder full = new StringBuilder();
+    private String runStreamingTurn(List<Map<String, String>> messages, StreamSink sink) throws Exception {        StringBuilder full = new StringBuilder();
         Iterator<StreamChunk> it = streamingLlmCaller.chat(messages);
         while (it.hasNext()) {
             StreamChunk chunk = it.next();

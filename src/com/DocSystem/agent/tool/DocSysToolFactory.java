@@ -113,10 +113,12 @@ public class DocSysToolFactory {
         JSONObject props = props(
                 intProp("vid", "仓库ID"),
                 longProp("docId", "文档ID"),
-                strProp("path", "路径（可选）"),
-                strProp("name", "文档名（可选）"));
-        JSONObject schema = objSchema(props, new String[]{"vid", "docId"});
-        return ToolDefinition.builder("get_doc", "获取文档内容",
+                strProp("path", "文档路径（必填，来自 list_docs 结果的 data[].path，如 \"DocSys/\"）"),
+                strProp("name", "文档名（必填，来自 list_docs 结果的 data[].name）"));
+        JSONObject schema = objSchema(props, new String[]{"vid", "path", "name"});
+        return ToolDefinition.builder("get_doc",
+                "获取文档内容（docText）。注意：必须同时传 path 和 name（来自 list_docs 结果的 data[].path 与 data[].name），"
+                + "仅传 docId 无法返回内容。",
                 args -> ToolResult.ok(fmt(client.getDoc(args.getInteger("vid"),
                         args.getLong("docId"), args.getString("path"), args.getString("name")))))
                 .parameters(schema)

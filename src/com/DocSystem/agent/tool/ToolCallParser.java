@@ -32,9 +32,14 @@ public class ToolCallParser {
 
     private static final Logger log = LoggerFactory.getLogger(ToolCallParser.class);
 
-    /** 匹配单个 tool_call 块（非贪婪，支持跨行） */
+    /**
+     * 匹配 tool_call 块（非贪婪，支持跨行）。
+     * 兼容两种形态：
+     *  1) 单数：&lt;tool_call&gt;{"name":"...","arguments":{}}&lt;/tool_call&gt;
+     *  2) 复数包装（Anthropic 风格）：&lt;tool_calls&gt;\n{"name":"..."}\n&lt;/tool_calls&gt;
+     */
     private static final Pattern TOOL_CALL_PATTERN =
-            Pattern.compile("<tool_call>(.*?)</tool_call>", Pattern.DOTALL);
+            Pattern.compile("<(tool_call|tool_calls)>(.*?)</(tool_call|tool_calls)>", Pattern.DOTALL);
 
     /**
      * 解析 LLM 输出中的全部工具调用。
@@ -55,7 +60,7 @@ public class ToolCallParser {
 
         while (m.find()) {
             sawMarker = true;
-            String body = m.group(1).trim();
+            String body = m.group(2).trim();
             ToolCall call = parseOne(body, output);
             if (call == null) {
                 anyInvalid = true;
@@ -93,11 +98,13 @@ public class ToolCallParser {
         return output != null && TOOL_CALL_PATTERN.matcher(output).find();
     }
 
-    /** 输出里出现疑似工具调用标记但未解析出完整块（关闭标签写错/被截断等） */
+    /** 输出里出现疑似工具调用标记但未解析出完整块（关闭标签写错/被截断/复数未闭合等） */
     private static boolean looksLikeMalformedToolCall(String output) {
         return output != null && (
                 output.contains("<tool_call")
+                || output.contains("<tool_calls")
                 || output.contains("</tool_call>")
+                || output.contains("</tool_calls>")
                 || output.contains("<invoke ")
                 || output.contains("</invoke>"));
     }

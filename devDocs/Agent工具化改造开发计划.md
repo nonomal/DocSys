@@ -44,7 +44,7 @@
    - 执行从"规则路由到 SubAgent"改为"解析 tool_call → ToolRegistry 执行 → 结果回灌对话"。
 5. 关键约束（参考 LLMService 并发注意事项）：所有请求级配置（含工具集）必须以**局部变量/参数**贯穿，不得写 `LLMService` 共享可变字段（存在并发竞态）。
 6. 模型身份问题已修复：系统提示词已去掉 `"You are..."` 身份设定，改为纯场景描述 + 显式禁止编造架构信息（2026-07-31 已改，见上下文文档 §5）。
-7. **T7 参考蓝本（2026-07-31 调研）**：`D:\Dev\ai-writting-node` PR #359 的 Agent 实现（AI SDK v7 ToolLoopAgent）——单 Agent 循环 + DB 历史重建上下文 + 三层上下文（Baseline 免压缩 persistent / Warm LLM 摘要 / Hot 近期历史）+ 双水位压缩 + 流式 UIMessage（text/reasoning/tool 卡片）+ 可折叠处理过程容器 + Step 审计 + Memory 工具 + Web Search。DocSys Agent 核心循环已对齐；**T7 补齐流式体验（Reasoning 展示 + 真流式 + 工具卡片）**，P0/P1 其余项（Memory 工具/Web Search/Warm 压缩/Step 审计/Admin 配置提示词）列入后续候选。
+7. **T7 参考蓝本（2026-07-31 调研）**：`D:\Dev\ai-writting-node` PR #359 的 Agent 实现（AI SDK v7 ToolLoopAgent）——单 Agent 循环 + DB 历史重建上下文 + 三层上下文（Baseline 免压缩 persistent / Warm LLM 摘要 / Hot 近期历史）+ 双水位压缩 + 流式 UIMessage（text/reasoning/tool 卡片）+ 可折叠处理过程容器 + Step 审计 + Memory 工具 + Web Search。DocSys Agent 核心循环已对齐；**T7 补齐流式体验（Reasoning 展示 + 真流式 + 工具卡片）**。其余候选（Memory 工具/Web Search/Step 审计/Admin 配置提示词 + T5.3 发现的 DocSystem 核心 bug）已**正式固化为任务树 T8**（2026-07-31 用户排期按序执行）；Warm 压缩暂缓。
 
 ---
 
@@ -206,15 +206,15 @@
       - 当前状态：未开始。需对接 SkillCrystallizer/ExperienceMemory 的重复序列检测与 Skill 文件生成（独立功能，暂缓）。
 
   - [ ] **T6. 灰度切换与验收**
-    - 当前状态：未开始。T6.1/T6.2 为必做交付门槛。
-    - [ ] T6.1 端到端黄金测试：新旧路径对比
+    - 当前状态：**决策已变更（2026-07-31）**——旧路径代码经评估确认**仍有使用，保留不动**（不做删除）；因此**取消新旧路径对比类测试**（T6.1/T6.2）。T6.3 已翻正。剩余 T6.4 降级为可选。
+    - [x] T6.1 端到端黄金测试：新旧路径对比 → **已取消**
       - 内容：同一批真实请求（仓库/文档/搜索/问答），旧路由 vs ToolUseLoop 输出对比；ToolUseLoop 产物正确性人工验收。
       - 完成判据：核心场景全部通过，无回归。
-      - 当前状态：未开始。
-    - [ ] T6.2 性能对照
+      - 当前状态：**取消（2026-07-31 用户决策）**——不再对比旧路径；ToolUseLoop 产物正确性已由 T5.3 真实多步链验证覆盖（6 工具/9 轮产物正确）。
+    - [x] T6.2 性能对照 → **已取消**
       - 内容：ToolUseLoop vs 旧路由的响应时间、LLM 调用次数、工具调用次数统计。
       - 完成判据：形成验收指标（含轮数分布，避免 LLM 空转）。
-      - 当前状态：未开始。
+      - 当前状态：**取消（2026-07-31 用户决策）**——不做新旧性能对比；流式首 token 延迟收益已由 T7.4.2 实测证明。
     - [~] T6.3 默认开启 ToolUseLoop（灰度翻正）
       - 内容：`agent.tool-loop.enabled=true`；保留开关随时回退旧路径。
       - 完成判据：真实请求默认走 ToolUseLoop；监控无异常回退。
@@ -222,7 +222,7 @@
     - [ ] T6.4 长尾回归
       - 内容：旧路径曾支持的意图/命令（list-repos、create-repos 等复合命令）在新路径下仍可用。
       - 完成判据：覆盖旧路径全部命令场景，无能力退化。
-      - 当前状态：未开始。
+      - 当前状态：**降级为可选（2026-07-31 用户决策）**——旧路径保留为兜底（ToolUseLoop 失败自动回退旧路径），长尾命令仍有退路、无能力损失；如需可抽查几个复合命令（list-repos / create-repos）确认新路径覆盖情况，非必做。
 
   - [ ] **T7. 流式体验升级（对齐 ai-writting-node：Reasoning 展示 + 真流式 + 工具进度卡片）**
     - 当前状态：**全部完成（2026-07-31 部署验收通过）**。参考蓝本：`D:\Dev\ai-writting-node` PR #359（AI SDK v7 ToolLoopAgent）——`UIMessage stream`（text/reasoning/tool 进度卡片）+ 可折叠处理过程容器 + reasoning 灰色小字内联 + 回放剥离。
@@ -288,6 +288,43 @@
         - 内容：流式首 token 延迟、整轮耗时 vs 非流式基线。
         - 完成判据：首 token 延迟明显低于整轮耗时（流式收益成立）。
         - 完成记录：实测单轮对话首 reasoning 分片 458ms / 首 text 分片 2053ms / done 4836ms——首分片远早于整轮耗时，流式收益成立。
+
+  - [x] **T8. 后续增强（P0/P1 候选，2026-07-31 用户排期按序执行）**
+    - 当前状态：进行中（T8.1 已完成，T8.2-T8.6 待执行）。源自全局状态第 7 条"后续候选"名单 + T5.3 发现的 DocSystem 核心 bug；用户明确按下列顺序执行。
+    - [x] T8.1 修复 DocSystem 核心 bug：getDoc.do NPE（恢复 get_doc）
+      - 内容：`getDoc.do` 对所有 doc 返回 HTTP 500 NPE（日志 `docSysGetDocList() docId:0 []` 查库为空）→ 定位根因并修复，让 `get_doc`/`get_doc_history` 工具恢复可用。
+      - 完成判据：真实文档经 get_doc 返回内容（docText 或下载信息），Agent 多步链"列目录→读内容→总结"完整跑通。
+      - 完成记录（2026-07-31）：
+        1. **DocController.getDoc.do NPE 两处修复**（`src/com/DocSystem/controller/DocController.java`）：4301 行 `FileUtil.getFileSuffix(name)` 空指针 → 加 `(name != null)` 守卫；4301/4324 行 `docType == 1` 拆箱 NPE → 改 `Integer.valueOf(1).equals(docType)` 安全比较。
+        2. **编译部署关键教训**：Spring Controller 编译必须加 `-parameters -g`，否则 Spring 无法反解参数名 → `IllegalArgumentException: Name for argument type not available`。
+        3. **DocSysClient.getDoc 加 `docType=1`**：让服务端返回 docText（实测 buildDocSystem.bat docText=4226 字符；记录1.docx docText=123 字符）。
+        4. **get_doc 工具 schema 更新**：required=[vid,path,name] + 描述引导"必须同时传 path 和 name（来自 list_docs 结果）"。
+        5. **端到端多步链验收通过**：真实 LLM（deepseek）`list_repos → list_docs（vid=8, path=DocSys）→ get_doc（记录1.docx）→ 总结` 完整跑通，SSE 事件流 turns=4/toolCalls=3，最终回答正确总结 DTU 唤醒配置要点。
+        6. **附带的解析器加固（T8.1 验收中发现）**：模型漂移输出**复数 `<tool_calls>...</tool_calls>`**（Anthropic 风格）→ 旧正则只匹配单数 → 被当最终回答。修复：`TOOL_CALL_PATTERN` 改为 `<(tool_call|tool_calls)>(.*?)</(tool_call|tool_calls)>`，`looksLikeMalformedToolCall` 增补 `<tool_calls`/`</tool_calls>` 检测；`TestToolCallParser` 23→**32 全绿**（+复数 3 项/混合 1 项/畸形 1 项等 9 断言）。
+        7. **⚠️ 部署环境重要教训**：本次发现"运行时类与磁盘不一致"现象——`wtpwebapps` 文件时间戳/哈希与工作区一致，但 Tomcat JVM 仍运行旧类（热重载未生效）。触发方式：重新复制 .class（更新时间戳）强制 context reload。**判断是否加载新类的可靠手段**：在循环中加文件转储日志（本 T8.1 用 `D:/tmp_loop_debug.log`）验证运行时真实行为。
+        8. **⚠️ 重载延迟/窗口期教训**：复制 .class 后 context reload 有**延迟窗口**（约数十秒~1分钟），此窗口内请求可能仍用旧类 → 表现"同样的命令间歇失败/成功"。验收必须**等重载完成后**再测（以文件转储日志出现为确认）。最终确认：`/stream` 与 `/execute` 两条路径的多步链（list_repos→list_docs→get_doc→总结）均完整通过；调试日志还暴露模型会把 `</tool_call>` 截断成乱码 → `looksLikeMalformedToolCall` 容错正确触发重试恢复。
+        9. **护栏全景更新**：TestToolCallParser 23→**32**（+复数 3 项/混合 1 项/复数畸形 1 项等 9 断言）；全景 = 29+32+36+26+52+9 = **184 全绿**。
+      - 当前状态：**已完成（2026-07-31 端到端验收通过）**。
+    - [ ] T8.2 修复 DocSystem 核心 bug：create_doc_share 端点缺失
+      - 内容：`createDocShare.do` 端点不存在 → 找到 DocSystem 真实的分享创建端点并接线到 `create_doc_share` 工具（写工具，仍 needsConfirm）。
+      - 完成判据：create_doc_share 经确认后真实创建分享成功，分享列表可见。
+      - 当前状态：未开始。★ [UNVALIDATED] 无端到端验证。
+    - [ ] T8.3 Memory 工具（跨会话用户偏好）
+      - 内容：新增 `memory_set`/`memory_get` 工具，LLM 可读写持久化用户偏好/上下文（复用 agent 会话表或新表），跨会话生效。
+      - 完成判据：用户偏好经 LLM 写入后，后续会话 LLM 能读取并据此调整回答；护栏单测。
+      - 当前状态：未开始。★ [UNVALIDATED] 无端到端验证。
+    - [ ] T8.4 Web Search 工具
+      - 内容：新增 `web_search` 只读工具（可配置搜索端点/超时），LLM 可联网检索补充信息。
+      - 完成判据：真实搜索返回结果并回灌；护栏单测；失败安全回退。
+      - 当前状态：未开始。★ [UNVALIDATED] 无端到端验证。
+    - [ ] T8.5 Step 审计（工具链每步）
+      - 内容：ToolUseLoop 每轮/每工具调用产出结构化审计（turn/tool/args 摘要/result 摘要/耗时），对接 AuditLogService 或独立表。
+      - 完成判据：一次工具链请求的每步审计可查询；护栏断言。
+      - 当前状态：未开始。★ [UNVALIDATED] 无端到端验证。
+    - [ ] T8.6 Admin 配置 system prompt
+      - 内容：管理员可在系统配置中覆盖 ToolPromptBuilder 生成的 system prompt（或附加段落），持久化到配置表。
+      - 完成判据：配置生效于后续请求；前端/接口可编辑。
+      - 当前状态：未开始。★ [UNVALIDATED] 无端到端验证。
 
 ---
 

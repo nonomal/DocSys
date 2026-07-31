@@ -4294,11 +4294,12 @@ public class DocController extends BaseController{
 		//图片、视频、音频文件需要返回文件的访问信息，如果是文本文件或Office文件需要根据前端需求返回docText
 		if(doc.getType() == 1)
 		{
-			String fileSuffix = FileUtil.getFileSuffix(name);
+			//T8.1 修复：name 可能为 null（调用方只传 docId 时），getFileSuffix(null) 会 NPE
+			String fileSuffix = (name != null) ? FileUtil.getFileSuffix(name) : "";
 			Doc downloadDoc = buildDownloadDocInfo(doc.getVid(), doc.getPath(), doc.getName(), doc.getLocalRootPath() + doc.getPath(), doc.getName(), 1);
 			rt.setDataEx(downloadDoc);
 			
-			if(docType == 1 || docType == 3)	//docType { 1: get docText only, 2: get content only 3: get docText and content } 
+			if(Integer.valueOf(1).equals(docType) || Integer.valueOf(3).equals(docType))	//docType { 1: get docText only, 2: get content only 3: get docText and content }；T8.1 修复：docType 可能为 null，禁止自动拆箱
 			{
 				String docText = null;
 				String tmpDocText = null;
@@ -4320,7 +4321,7 @@ public class DocController extends BaseController{
 		}
 		
 		//获取文件备注信息
-		if(docType == 2 || docType == 3)
+		if(Integer.valueOf(2).equals(docType) || Integer.valueOf(3).equals(docType))	//T8.1 修复：docType 可能为 null，禁止自动拆箱
 		{
 			String content = readVirtualDocContent(repos, doc);
 			if( null !=content){
