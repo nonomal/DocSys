@@ -141,10 +141,14 @@ public class SubAgent {
     }
     
     /**
-     * Execute a sub-task
+     * Execute a sub-task.
+     * @param resolvedLlm 用户选定的模型配置，null=使用系统默认
      */
-    public AgentResponse execute(SubTask subTask, AgentContext context, DocSysClient docSysClient, Object sessionInfo) {
-        log.info("SubAgent executing task: {} with params: {}", subTask.getId(), subTask.getParams());
+    public AgentResponse execute(SubTask subTask, AgentContext context, DocSysClient docSysClient,
+                                  com.DocSystem.agent.llm.ResolvedLlmConfig resolvedLlm) {
+        log.info("SubAgent executing task: {} with params: {}, model: {}",
+                subTask.getId(), subTask.getParams(),
+                resolvedLlm != null ? resolvedLlm.displayName : "default");
 
         String taskType = subTask.getId();
         Map<String, String> params = subTask.getParams();
@@ -193,7 +197,7 @@ public class SubAgent {
                 result = handleSearchDoc(docSysClient, params.get("query"), params.get("vid"));
             // ========== AI/CHAT COMMANDS ==========
             } else if ("chat".equals(taskType) || "ai-chat".equals(taskType) || "ask".equals(taskType)) {
-                result = handleChat(docSysClient, params.get("message"), params.get("model"));
+                result = handleChat(docSysClient, params.get("message"), params.get("model"), resolvedLlm);
             } else if ("rag_chat".equals(taskType) || "chat-with-docs".equals(taskType)) {
                 result = handleRagChat(docSysClient, params.get("query"), params.get("model"), params.get("apiKey"));
             } else if ("list_models".equals(taskType) || "ai-models".equals(taskType)) {
@@ -231,9 +235,9 @@ public class SubAgent {
             } else if ("search_and_load".equals(taskType)) {
                 result = handleSearchAndLoad(docSysClient, params.get("query"), params.get("loadToContext"));
             } else if ("generate_summary".equals(taskType)) {
-                result = handleGenerateSummary(docSysClient, params.get("topic"), params.get("generate"));
+                result = handleGenerateSummary(docSysClient, params.get("topic"), params.get("generate"), resolvedLlm);
             } else if ("search_and_answer".equals(taskType)) {
-                result = handleSearchAndAnswer(docSysClient, params.get("topic"), params.get("query"));
+                result = handleSearchAndAnswer(docSysClient, params.get("topic"), params.get("query"), resolvedLlm);
             // ========== DEFAULT ==========
             } else {
                 result = handleUnknownTask(taskType, params, context);
@@ -695,13 +699,21 @@ public class SubAgent {
     
     // ========== AI/CHAT HANDLERS ==========
     
-    private AgentResponse handleChat(DocSysClient client, String message, String model) {
+    private AgentResponse handleChat(DocSysClient client, String message, String model,
+                                      com.DocSystem.agent.llm.ResolvedLlmConfig resolvedLlm) {
         if (message == null || message.isEmpty()) {
             return AgentResponse.error("Usage: chat <message> [model]");
         }
         try {
             if (llmService != null) {
-                String response = llmService.chat(message, "default");
+                String response;
+                if (resolvedLlm != null) {
+                    // 使用无状态入口，不写共享字段，线程安全
+                    response = llmService.chat(message, "default", resolvedLlm);
+                } else {
+                    // 回退：使用系统默认模型
+                    response = llmService.chat(message, "default");
+                }
                 return AgentResponse.ok(response);
             } else {
                 String response = client.chat(message, model);
@@ -1207,7 +1219,8 @@ private AgentResponse handleHelp() {
      * 从搜索的文档生成综述/总结
      * 用于: "撰写xxx综述" / "生成xxx报告"
      */
-    private AgentResponse handleGenerateSummary(DocSysClient client, String topic, String generate) {
+    private AgentResponse handleGenerateSummary(DocSysClient client, String topic, String generate,
+                                                  com.DocSystem.agent.llm.ResolvedLlmConfig resolvedLlm) {
         if (topic == null || topic.isEmpty()) {
             return AgentResponse.error("请提供要撰写的主题，例如: 撰写项目综述");
         }
@@ -1229,7 +1242,12 @@ private AgentResponse handleHelp() {
                     "3. 提供有价值的见解\n\n" +
                     "参考文档内容:\n" + context;
                 
-                String summary = llmService.chat(prompt, "default");
+                String summary;
+                if (resolvedLlm != null) {
+                    summary = llmService.chat(prompt, "default", resolvedLlm);
+                } else {
+                    summary = llmService.chat(prompt, "default");
+                }
                 return AgentResponse.ok(summary).withData(searchResult);
             } else {
                 // 没有LLM，返回搜索结果
@@ -1247,7 +1265,8 @@ private AgentResponse handleHelp() {
      * 搜索并回答问题
      * 用于: "关于xxx" / "我想了解xxx"
      */
-    private AgentResponse handleSearchAndAnswer(DocSysClient client, String topic, String query) {
+    private AgentResponse handleSearchAndAnswer(DocSysClient client, String topic, String query,
+                                                  com.DocSystem.agent.llm.ResolvedLlmConfig resolvedLlm) {
         if (topic == null || topic.isEmpty()) {
             return AgentResponse.error("请提供想了解的内容，例如: 关于项目情况");
         }
@@ -1265,7 +1284,12 @@ private AgentResponse handleHelp() {
                     "文档内容:\n" + context + "\n\n" +
                     "请给出准确、有帮助的回答。如果文档中没有相关信息，请说明情况。";
                 
-                String answer = llmService.chat(prompt, "default");
+                String answer;
+                if (resolvedLlm != null) {
+                    answer = llmService.chat(prompt, "default", resolvedLlm);
+                } else {
+                    answer = llmService.chat(prompt, "default");
+                }
                 return AgentResponse.ok(answer).withData(searchResult);
             } else {
                 String resultSummary = formatSearchResults(searchResult, topic);

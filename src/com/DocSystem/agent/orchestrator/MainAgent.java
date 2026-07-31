@@ -174,13 +174,26 @@ public class MainAgent {
     }
 
     /**
-     * Process user query with explicit DocSysClient
+     * Process user query with explicit DocSysClient (backward-compat, no model selection).
      * @param sessionInfo - SessionInfo object containing authenticated session details
      * @param client - Per-session DocSysClient (from AgentController session pool)
      */
     public AgentResponse process(String userQuery, AgentContext context, Object sessionInfo, DocSysClient client) {
+        return process(userQuery, context, sessionInfo, client, null);
+    }
+
+    /**
+     * Process user query with explicit DocSysClient + user-selected LLM model.
+     * @param sessionInfo - SessionInfo object containing authenticated session details
+     * @param client - Per-session DocSysClient (from AgentController session pool)
+     * @param resolvedLlm - 用户选定的模型配置，null=使用系统默认
+     */
+    public AgentResponse process(String userQuery, AgentContext context, Object sessionInfo,
+                                  DocSysClient client,
+                                  com.DocSystem.agent.llm.ResolvedLlmConfig resolvedLlm) {
         long startTime = System.currentTimeMillis();
-        log.info("MainAgent processing query: {} with sessionInfo: {}", userQuery, sessionInfo);
+        log.info("MainAgent processing query: {} with sessionInfo: {}, model: {}",
+                userQuery, sessionInfo, resolvedLlm != null ? resolvedLlm.displayName : "default");
 
         // 使用传入的 per-session DocSysClient，或创建新的
         DocSysClient authenticatedClient = client != null ? client : this.docSysClient;
@@ -242,7 +255,7 @@ public class MainAgent {
                     userQuery, intent, decomposition,
                     plan -> {
                         try {
-                            TaskExecutionResult r = executeSubTasks(plan, context, authenticatedClient);
+                            TaskExecutionResult r = executeSubTasks(plan, context, authenticatedClient, resolvedLlm);
                             boolean ok = r != null && r.getResultIds() != null
                                 && r.getResultIds().size() == plan.getSubTasks().size();
                             return java.util.Optional.of(new OrchestrationLoop.StepResult(
@@ -304,8 +317,8 @@ public class MainAgent {
 
         // OFF path: byte-for-byte copy of pre-loop behaviour
         try {
-            // Step 2: Execute sub-tasks with authenticated client
-            TaskExecutionResult result = executeSubTasks(decomposition, context, authenticatedClient);
+            // Step 2: Execute sub-tasks with authenticated client + resolved LLM config
+            TaskExecutionResult result = executeSubTasks(decomposition, context, authenticatedClient, resolvedLlm);
 
             // Step 3: Aggregate results
             AgentResponse response = aggregateResults(result);
@@ -892,7 +905,9 @@ public class MainAgent {
      * Execute sub-tasks in parallel
      * @param authenticatedClient - Request-scoped DocSysClient with session already set
      */
-    private TaskExecutionResult executeSubTasks(TaskDecomposition decomposition, AgentContext context, DocSysClient authenticatedClient) {
+    private TaskExecutionResult executeSubTasks(TaskDecomposition decomposition, AgentContext context,
+                                                  DocSysClient authenticatedClient,
+                                                  com.DocSystem.agent.llm.ResolvedLlmConfig resolvedLlm) {
         TaskExecutionResult result = new TaskExecutionResult();
         for (SubTask subTask : decomposition.getSubTasks()) {
                 String taskId = null;
@@ -916,7 +931,7 @@ public class MainAgent {
 
                 try {
                     SubAgent subAgent = getOrCreateSubAgent(subTask.getId());
-                    AgentResponse subResult = subAgent.execute(subTask, context, authenticatedClient, null);
+                    AgentResponse subResult = subAgent.execute(subTask, context, authenticatedClient, resolvedLlm);
                     result.addResult(subTask.getId(), subResult);
 
                     if (taskQueueService != null && taskId != null) {

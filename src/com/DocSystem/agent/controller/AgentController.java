@@ -200,6 +200,7 @@ public class AgentController {
         private String sessionId;
         private String jsessionid;
         private String cookie;  // Cookie header 也可通过 body 传递
+        private String modelId;  // 用户选择的模型 selector（sys:idx 或 user:id），null=默认
 
         public ExecuteRequest() {}
 
@@ -214,6 +215,9 @@ public class AgentController {
 
         public String getCookie() { return cookie; }
         public void setCookie(String cookie) { this.cookie = cookie; }
+
+        public String getModelId() { return modelId; }
+        public void setModelId(String modelId) { this.modelId = modelId; }
     }
 
     /**
@@ -243,7 +247,10 @@ public class AgentController {
             String username = user.getName();
             // 供 DocSysClient HTTP 直通使用的 JSESSIONID（即 DocSystem 会话 id）
             String jsessionid = servletRequest.getSession().getId();
-            return runCommand(command, username, jsessionid);
+            // 解析用户选定的模型（在请求线程内解析）；null=使用系统默认
+            com.DocSystem.agent.llm.ResolvedLlmConfig resolvedLlm =
+                    (userLlmModelService != null) ? userLlmModelService.resolve(request.getModelId(), username) : null;
+            return runCommand(command, username, jsessionid, resolvedLlm);
         } finally {
             MDC.remove("requestId");
             MDC.remove("sessionId");
@@ -256,6 +263,15 @@ public class AgentController {
      * 以便 SSE 等后台线程也能安全调用（不依赖已回收的 request）。
      */
     private AgentResponse runCommand(String command, String username, String jsessionid) {
+        return runCommand(command, username, jsessionid, null);
+    }
+
+    /**
+     * 执行核心逻辑（带模型选择）。
+     * @param resolvedLlm 用户选定的模型配置，null=使用系统默认
+     */
+    private AgentResponse runCommand(String command, String username, String jsessionid,
+                                      com.DocSystem.agent.llm.ResolvedLlmConfig resolvedLlm) {
         try {
             log.info("Authenticated as: {}", username);
 
@@ -269,11 +285,11 @@ public class AgentController {
             // Get context
             AgentContext context = getContext(username, jsessionid);
 
-            // Execute via MainAgent (传入 per-jsessionid client)
+            // Execute via MainAgent (传入 per-jsessionid client + resolvedLlm)
             log.info("Calling mainAgent.process...");
             DocSysClient execClient = getSessionClient(jsessionid);
             long execStart = System.currentTimeMillis();
-            AgentResponse response = mainAgent.process(command, context, info, execClient);
+            AgentResponse response = mainAgent.process(command, context, info, execClient, resolvedLlm);
             long duration = System.currentTimeMillis() - execStart;
             // Extract intent from command for metrics
             String intent = extractIntent(command);

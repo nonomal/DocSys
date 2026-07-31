@@ -234,10 +234,9 @@ public class LLMService {
         if (messages.isEmpty()) {
             Map<String, String> sysMsg = new HashMap<>();
             sysMsg.put("role", "system");
-            sysMsg.put("content", "You are DocSys AI Assistant, a professional document management system assistant. " +
+            sysMsg.put("content", "You are a helpful AI assistant in DocSys document management system. " +
                        "You help users manage documents, repositories, and perform various tasks. " +
-                       "You should be helpful, concise, and professional. " +
-                       "When users ask about documents or repositories, you can help them manage their content.");
+                       "Keep responses concise and helpful.");
             messages.add(sysMsg);
         }
 
@@ -273,6 +272,59 @@ public class LLMService {
         asstMsg2.put("role", "assistant");
         asstMsg2.put("content", response);
         messages.add(asstMsg2);
+        while (messages.size() > 20) messages.remove(1);
+        return response;
+    }
+
+    /**
+     * 无状态非流式对话入口：目标 endpoint/model/apiKey 全部来自 {@link ResolvedLlmConfig} 参数，
+     * 作为局部变量传递，绝不写入共享字段 —— 因此并发请求各选各的模型互不干扰。
+     *
+     * <p>与 {@link #chat(String, String)} 的区别：本重载不调用 refreshFromSystemConfig / applyConfig，
+     * 全程使用 resolved 中的配置，线程安全。
+     */
+    public String chat(String message, String sessionId, ResolvedLlmConfig resolved) throws IOException {
+        List<Map<String, String>> messages = conversationHistory.computeIfAbsent(
+            sessionId, k -> new ArrayList<>()
+        );
+
+        // Add system prompt (same softened prompt as streamChat)
+        if (messages.isEmpty()) {
+            Map<String, String> sysMsg = new HashMap<>();
+            sysMsg.put("role", "system");
+            sysMsg.put("content", "You are a helpful AI assistant in DocSys document management system. " +
+                       "Keep responses concise and helpful.");
+            messages.add(sysMsg);
+        }
+
+        // Add user message
+        Map<String, String> userMsg = new HashMap<>();
+        userMsg.put("role", "user");
+        userMsg.put("content", message);
+        messages.add(userMsg);
+
+        // 目标配置全部来自 resolved（请求级局部变量），不写共享字段
+        String chatEndpoint = resolved.endpoint;
+        String chatModel = resolved.model;
+        String chatApiKey = resolved.apiKey;
+        boolean chatOpenAi = resolved.openAiCompatible;
+
+        // Circuit breaker: primary/backup switching
+        if (hasBackup && isPrimaryCircuitOpen()) {
+            log.info("Primary LLM circuit breaker OPEN — switching to backup endpoint");
+            chatEndpoint = backupEndpoint;
+            chatModel = backupModel.isEmpty() ? defaultModel : backupModel;
+            chatApiKey = apiKey;
+            chatOpenAi = detectOpenAiCompatible(chatEndpoint);
+        }
+
+        String response = doChat(chatEndpoint, chatModel, chatApiKey, messages);
+
+        // Add to conversation history
+        Map<String, String> asstMsg = new HashMap<>();
+        asstMsg.put("role", "assistant");
+        asstMsg.put("content", response);
+        messages.add(asstMsg);
         while (messages.size() > 20) messages.remove(1);
         return response;
     }
@@ -509,7 +561,8 @@ public class LLMService {
             if (messages.isEmpty()) {
                 Map<String, String> sysMsg = new HashMap<>();
                 sysMsg.put("role", "system");
-                sysMsg.put("content", "You are DocSys AI Assistant. Keep responses concise and helpful.");
+                sysMsg.put("content", "You are a helpful AI assistant in DocSys document management system. " +
+                               "Keep responses concise and helpful.");
                 messages.add(sysMsg);
             }
             Map<String, String> userMsg = new HashMap<>();
