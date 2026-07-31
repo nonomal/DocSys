@@ -97,6 +97,9 @@ public class AgentController {
     private SessionService sessionService;
 
     @Autowired(required = false)
+    private com.DocSystem.agent.session.ConversationHistoryService conversationHistoryService;
+
+    @Autowired(required = false)
     private AuditLogService auditLogService;
 
     @Autowired(required = false)
@@ -130,6 +133,10 @@ public class AgentController {
 
     @Value("${agent.widget-key:}")
     private String agentWidgetKey;
+
+    /** ToolUseLoop 灰度开关（与 MainAgent 一致；SSE 路径据此决定是否走工具推理 + 确认推送） */
+    @Value("${agent.tool-loop.enabled:true}")
+    private boolean toolLoopEnabled;
 
     @Autowired
     private EnvConfig envConfig;
@@ -250,7 +257,14 @@ public class AgentController {
             // 解析用户选定的模型（在请求线程内解析）；null=使用系统默认
             com.DocSystem.agent.llm.ResolvedLlmConfig resolvedLlm =
                     (userLlmModelService != null) ? userLlmModelService.resolve(request.getModelId(), username) : null;
-            return runCommand(command, username, jsessionid, resolvedLlm);
+            AgentResponse resp = runCommand(command, username, jsessionid, resolvedLlm);
+            // T5.2a 会话历史持久化（/execute 路径）
+            if (conversationHistoryService != null) {
+                conversationHistoryService.saveExchange(
+                        request.getSessionId() != null ? request.getSessionId() : jsessionid,
+                        command, resp.getMessage());
+            }
+            return resp;
         } finally {
             MDC.remove("requestId");
             MDC.remove("sessionId");
@@ -305,6 +319,40 @@ public class AgentController {
     }
 
     /**
+     * 在 SSE 路径运行 ToolUseLoop（写操作确认事件经 emitter 推送前端）。
+     *
+     * @return 成功 → AgentResponse；失败/异常 → null（调用方回退旧路径）
+     */
+    private AgentResponse runToolLoopWithSse(String command, String username, String jsessionid,
+                                              String sessionId,
+                                              com.DocSystem.agent.llm.ResolvedLlmConfig resolvedLlm,
+                                              SseEmitter emitter) {
+        try {
+            AgentContext context = getContext(username, jsessionid);
+            DocSysClient execClient = getSessionClient(jsessionid);
+            SessionInfo info = new SessionInfo(username, jsessionid, jsessionid);
+
+            // SSE 确认推送器：写工具需要确认时推 confirm 事件给前端
+            com.DocSystem.agent.tool.ConfirmEventSink sink = (toolName, token, msg) -> {
+                try {
+                    emitter.send(SseEmitter.event()
+                        .data("{\"type\":\"confirm\",\"confirmToken\":\"" + token +
+                              "\",\"operation\":\"" + toolName +
+                              "\",\"message\":" + escapeJson(msg) + "}", MediaType.TEXT_PLAIN));
+                    log.info("SSE confirm pushed: tool={}, confirmToken={}", toolName, token);
+                } catch (Exception e) {
+                    log.warn("SSE confirm push failed for tool '{}': {}", toolName, e.getMessage());
+                }
+            };
+
+            return mainAgent.runToolUseLoop(command, context, execClient, resolvedLlm, info, sink, sessionId);
+        } catch (Exception e) {
+            log.error("runToolLoopWithSse failed", e);
+            return null;
+        }
+    }
+
+    /**
      * Smart execute request DTO - 支持 CLI 优先 + 可视化备选
      */
     public static class ExecuteSmartRequest {
@@ -351,6 +399,112 @@ public class AgentController {
         data.put("realName", user.getRealName());
         data.put("sessionId", request.getSession().getId());
         return AgentResponse.ok(data);
+    }
+
+    // ==================== 会话历史持久化（T5.2a：续接入口） ====================
+
+    /**
+     * 列出当前用户的会话（按最近活跃倒序，含标题/消息数）。
+     * GET /agent/sessions
+     */
+    @GetMapping("/sessions")
+    public AgentResponse listSessions(HttpServletRequest request) {
+        User user = currentUser(request);
+        if (user == null) {
+            return AgentResponse.error("NOT_LOGGED_IN");
+        }
+        String username = user.getName();
+        List<Map<String, Object>> result = new ArrayList<>();
+        java.util.List<com.DocSystem.agent.session.SessionEntity> sessions =
+                sessionService.listByUsername(username);
+        if (sessions != null) {
+            for (com.DocSystem.agent.session.SessionEntity s : sessions) {
+                Map<String, Object> item = new HashMap<>();
+                item.put("sessionId", s.getSessionId());
+                String title = com.DocSystem.agent.session.SessionService.titleFromMetadata(s.getMetadata());
+                item.put("title", title != null ? title : "新会话");
+                item.put("lastActive", s.getLastActive() != null ? s.getLastActive().toString() : null);
+                item.put("messageCount", conversationHistoryService != null
+                        ? conversationHistoryService.countBySessionId(s.getSessionId()) : 0);
+                result.add(item);
+            }
+        }
+        // 按 lastActive 倒序
+        result.sort((a, b) -> {
+            String ta = (String) a.get("lastActive");
+            String tb = (String) b.get("lastActive");
+            if (ta == null) return 1;
+            if (tb == null) return -1;
+            return tb.compareTo(ta);
+        });
+        return AgentResponse.ok(result);
+    }
+
+    /**
+     * 创建新会话。
+     * POST /agent/sessions   body: { "title": "..." }
+     * @return { "sessionId": "..." }
+     */
+    @PostMapping("/sessions")
+    public AgentResponse createSession(@RequestBody(required = false) Map<String, String> body,
+                                        HttpServletRequest request) {
+        User user = currentUser(request);
+        if (user == null) {
+            return AgentResponse.error("NOT_LOGGED_IN");
+        }
+        String sessionId = java.util.UUID.randomUUID().toString();
+        String title = body != null ? body.get("title") : null;
+        com.DocSystem.agent.session.SessionEntity session =
+                sessionService.createSession(sessionId, user.getName(), title);
+        Map<String, Object> data = new HashMap<>();
+        data.put("sessionId", session.getSessionId());
+        data.put("title", title != null ? title : "新会话");
+        return AgentResponse.ok(data);
+    }
+
+    /**
+     * 取会话历史消息（seq 升序）。
+     * GET /agent/sessions/{sessionId}/messages
+     */
+    @GetMapping("/sessions/{sessionId}/messages")
+    public AgentResponse getSessionMessages(@PathVariable("sessionId") String sessionId,
+                                             HttpServletRequest request) {
+        User user = currentUser(request);
+        if (user == null) {
+            return AgentResponse.error("NOT_LOGGED_IN");
+        }
+        if (conversationHistoryService == null) {
+            return AgentResponse.error("ConversationHistoryService not available");
+        }
+        List<Map<String, Object>> messages = new ArrayList<>();
+        for (com.DocSystem.agent.session.SessionMessageEntity m :
+                conversationHistoryService.getHistory(sessionId)) {
+            Map<String, Object> item = new HashMap<>();
+            item.put("role", m.getRole());
+            item.put("content", m.getContent());
+            item.put("seq", m.getSeq());
+            item.put("createdAt", m.getCreatedAt() != null ? m.getCreatedAt().toString() : null);
+            messages.add(item);
+        }
+        return AgentResponse.ok(messages);
+    }
+
+    /**
+     * 删除会话及其消息。
+     * DELETE /agent/sessions/{sessionId}
+     */
+    @DeleteMapping("/sessions/{sessionId}")
+    public AgentResponse deleteSession(@PathVariable("sessionId") String sessionId,
+                                        HttpServletRequest request) {
+        User user = currentUser(request);
+        if (user == null) {
+            return AgentResponse.error("NOT_LOGGED_IN");
+        }
+        if (conversationHistoryService == null) {
+            return AgentResponse.error("ConversationHistoryService not available");
+        }
+        conversationHistoryService.deleteSession(sessionId);
+        return AgentResponse.ok("会话已删除");
     }
 
     // ==================== LLM 模型列表 / 用户自定义模型 CRUD ====================
@@ -672,8 +826,51 @@ public class AgentController {
                     emitter.send(SseEmitter.event()
                         .data("{\"type\":\"done\",\"fullContent\":" + escapeJson(fullContent.toString()) + "}", MediaType.TEXT_PLAIN));
 
+                    // T5.2a 会话历史持久化（关页面后可续接）
+                    if (conversationHistoryService != null) {
+                        conversationHistoryService.saveExchange(effectiveSession, message, fullContent.toString());
+                    }
+
                 } else {
                     // Non-AI command: execute and stream result
+                    // ===== ToolUseLoop：全局开启时走工具推理（SSE 确认推送） =====
+                    if (toolLoopEnabled && llmService != null) {
+                        try {
+                            AgentResponse toolResp = runToolLoopWithSse(
+                                    command, capturedUsername, capturedJsessionid, sessionId, resolvedLlm, emitter);
+                            if (toolResp != null) {
+                                String responseText = toolResp.isSuccess()
+                                        ? toolResp.getMessage() : "错误: " + toolResp.getMessage();
+                                int chunkSize = 5;
+                                for (int i = 0; i < responseText.length(); i += chunkSize) {
+                                    int end = Math.min(i + chunkSize, responseText.length());
+                                    String part = responseText.substring(i, end);
+                                    emitter.send(SseEmitter.event()
+                                        .data("{\"type\":\"chunk\",\"content\":" + escapeJson(part) + "}", MediaType.TEXT_PLAIN));
+                                    if (i + chunkSize < responseText.length()) {
+                                        Thread.sleep(15);
+                                    }
+                                }
+                                emitter.send(SseEmitter.event()
+                                    .data("{\"type\":\"done\",\"fullContent\":" + escapeJson(responseText) + "}", MediaType.TEXT_PLAIN));
+                                // T5.2a 会话历史持久化
+                                if (conversationHistoryService != null) {
+                                    conversationHistoryService.saveExchange(
+                                            sessionId != null ? sessionId : capturedJsessionid,
+                                            command, responseText);
+                                }
+                                emitter.complete();
+                                return;
+                            }
+                            // null → 回退旧路径
+                            log.warn("ToolUseLoop SSE path returned null, falling back to legacy");
+                            com.DocSystem.agent.orchestrator.MainAgent.markToolLoopAttempted();
+                        } catch (Exception ex) {
+                            log.warn("ToolUseLoop SSE path failed, falling back to legacy: {}", ex.getMessage());
+                            com.DocSystem.agent.orchestrator.MainAgent.markToolLoopAttempted();
+                        }
+                    }
+
                     // Per D-12, D-13: Write operations require SSE confirmation
                     lowerCmd = command.toLowerCase().trim();
                     String operationType = extractOperationType(lowerCmd);
@@ -750,6 +947,13 @@ public class AgentController {
 
                     emitter.send(SseEmitter.event()
                         .data("{\"type\":\"done\",\"fullContent\":" + escapeJson(responseText) + "}", MediaType.TEXT_PLAIN));
+
+                    // T5.2a 会话历史持久化（legacy 路径）
+                    if (conversationHistoryService != null) {
+                        conversationHistoryService.saveExchange(
+                                sessionId != null ? sessionId : capturedJsessionid,
+                                command, responseText);
+                    }
                 }
 
                 emitter.complete();

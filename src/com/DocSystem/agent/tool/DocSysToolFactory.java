@@ -1,0 +1,604 @@
+package com.DocSystem.agent.tool;
+
+import com.DocSystem.agent.client.DocSysClient;
+import com.alibaba.fastjson.JSON;
+import com.alibaba.fastjson.JSONObject;
+
+import java.util.Map;
+
+/**
+ * DocSys 工具工厂 —— 把 {@link DocSysClient} 的 API 封装为 LLM 可调用的 {@link ToolDefinition}。
+ *
+ * <p>每个工具通过闭包绑定一个 per-request 的 DocSysClient 实例（会话隔离），
+ * 由调用方（MainAgent）按当前请求构造 registry。</p>
+ *
+ * <p>当前实现 T3.1 只读工具组（R1-R16）；写工具组（T3.2）后续加入。</p>
+ */
+public class DocSysToolFactory {
+
+    /** 工具结果文本摘要的最大长度（避免注入 LLM 上下文过大） */
+    private static final int MAX_SUMMARY_LEN = 4000;
+
+    private DocSysToolFactory() {
+    }
+
+    /**
+     * 创建绑定到指定 DocSysClient 的只读工具注册表。
+     */
+    public static ToolRegistry createReadOnlyRegistry(DocSysClient client) {
+        ToolRegistry reg = new ToolRegistry();
+        reg.register(getLoginUser(client));
+        reg.register(listRepos(client));
+        reg.register(getRepos(client));
+        reg.register(listDocs(client));
+        reg.register(getDoc(client));
+        reg.register(getDocHistory(client));
+        reg.register(searchDocs(client));
+        reg.register(ragChat(client));
+        reg.register(listAiModels(client));
+        reg.register(getSysConfig(client));
+        reg.register(getBannerConfig(client));
+        reg.register(getDocShareList(client));
+        reg.register(queryBackupStatus(client));
+        return reg;
+    }
+
+    /**
+     * 创建完整注册表（只读 + 写操作工具）。
+     * 写工具全部 isWrite=true + needsConfirm=true，执行前经 WriteConfirmGate 批准。
+     */
+    public static ToolRegistry createFullRegistry(DocSysClient client) {
+        ToolRegistry reg = createReadOnlyRegistry(client);
+        // 写操作工具组（T3.2）
+        reg.register(createRepos(client));
+        reg.register(deleteRepos(client));
+        reg.register(updateRepos(client));
+        reg.register(createDoc(client));
+        reg.register(deleteDoc(client));
+        reg.register(renameDoc(client));
+        reg.register(moveDoc(client));
+        reg.register(copyDoc(client));
+        reg.register(lockDoc(client));
+        reg.register(unlockDoc(client));
+        reg.register(createDocShare(client));
+        reg.register(backupRepos(client));
+        return reg;
+    }
+
+    // ==================== 工具定义 ====================
+
+    /** R1 当前登录用户 */
+    public static ToolDefinition getLoginUser(DocSysClient client) {
+        return ToolDefinition.builder("get_login_user", "获取当前登录用户信息",
+                args -> ToolResult.ok(fmt(client.getLoginUser())))
+                .build();
+    }
+
+    /** R2 列出仓库 */
+    public static ToolDefinition listRepos(DocSysClient client) {
+        return ToolDefinition.builder("list_repos", "列出当前用户可见的仓库列表",
+                args -> ToolResult.ok(fmt(client.getReposList())))
+                .build();
+    }
+
+    /** R4 仓库详情 */
+    public static ToolDefinition getRepos(DocSysClient client) {
+        JSONObject props = props(intProp("vid", "仓库ID"));
+        JSONObject schema = objSchema(props, new String[]{"vid"});
+        return ToolDefinition.builder("get_repos", "获取指定仓库的详细信息",
+                args -> ToolResult.ok(fmt(client.getRepos(args.getInteger("vid")))))
+                .parameters(schema)
+                .build();
+    }
+
+    /** R5 文档列表 */
+    public static ToolDefinition listDocs(DocSysClient client) {
+        JSONObject props = props(
+                intProp("vid", "仓库ID（必填）"),
+                longProp("pid", "父目录ID（可选，0为根）"),
+                strProp("path", "路径（可选）"));
+        JSONObject schema = objSchema(props, new String[]{"vid"});
+        return ToolDefinition.builder("list_docs", "列出指定仓库的文档列表",
+                args -> ToolResult.ok(fmt(client.getDocList(args.getInteger("vid"),
+                        args.getLong("pid"), args.getString("path")))))
+                .parameters(schema)
+                .build();
+    }
+
+    /** R6 文档内容 */
+    public static ToolDefinition getDoc(DocSysClient client) {
+        JSONObject props = props(
+                intProp("vid", "仓库ID"),
+                longProp("docId", "文档ID"),
+                strProp("path", "路径（可选）"),
+                strProp("name", "文档名（可选）"));
+        JSONObject schema = objSchema(props, new String[]{"vid", "docId"});
+        return ToolDefinition.builder("get_doc", "获取文档内容",
+                args -> ToolResult.ok(fmt(client.getDoc(args.getInteger("vid"),
+                        args.getLong("docId"), args.getString("path"), args.getString("name")))))
+                .parameters(schema)
+                .build();
+    }
+
+    /** R8 版本历史 */
+    public static ToolDefinition getDocHistory(DocSysClient client) {
+        JSONObject props = props(
+                intProp("vid", "仓库ID"),
+                longProp("docId", "文档ID"));
+        JSONObject schema = objSchema(props, new String[]{"vid", "docId"});
+        return ToolDefinition.builder("get_doc_history", "获取文档的版本历史",
+                args -> ToolResult.ok(fmt(client.getDocHistory(args.getInteger("vid"),
+                        args.getLong("docId")))))
+                .parameters(schema)
+                .build();
+    }
+
+    /** R9 全文搜索 */
+    public static ToolDefinition searchDocs(DocSysClient client) {
+        JSONObject props = props(
+                strProp("searchWord", "搜索关键词（必填）"),
+                intProp("vid", "仓库ID（可选，限定范围）"));
+        JSONObject schema = objSchema(props, new String[]{"searchWord"});
+        return ToolDefinition.builder("search_docs", "全文搜索文档（按关键词检索文档内容）",
+                args -> ToolResult.ok(fmt(client.searchDocs(args.getString("searchWord"),
+                        args.getInteger("vid")))))
+                .parameters(schema)
+                .build();
+    }
+
+    /** R10 AI 模型列表 */
+    public static ToolDefinition listAiModels(DocSysClient client) {
+        return ToolDefinition.builder("list_ai_models", "列出可用的 AI 模型列表",
+                args -> ToolResult.ok(fmt(client.getAiModelList())))
+                .build();
+    }
+
+    /** R11 系统配置 */
+    public static ToolDefinition getSysConfig(DocSysClient client) {
+        return ToolDefinition.builder("get_sys_config", "获取 DocSys 系统配置",
+                args -> ToolResult.ok(fmt(client.getDocSysConfig())))
+                .build();
+    }
+
+    /** R13 Banner 配置 */
+    public static ToolDefinition getBannerConfig(DocSysClient client) {
+        JSONObject schema = objSchema(props(strProp("serverIP", "服务器IP（可选）")), null);
+        return ToolDefinition.builder("get_banner_config", "获取系统 Banner 配置",
+                args -> ToolResult.ok(fmt(client.getBannerConfig(args.getString("serverIP")))))
+                .parameters(schema)
+                .build();
+    }
+
+    /** R15 分享列表 */
+    public static ToolDefinition getDocShareList(DocSysClient client) {
+        JSONObject props = props(
+                intProp("vid", "仓库ID"),
+                longProp("docId", "文档ID"),
+                strProp("path", "路径（可选）"),
+                strProp("name", "文档名（可选）"));
+        JSONObject schema = objSchema(props, new String[]{"vid", "docId"});
+        return ToolDefinition.builder("get_doc_share_list", "获取文档的分享列表",
+                args -> ToolResult.ok(fmt(client.getDocShareList(args.getInteger("vid"),
+                        args.getLong("docId"), args.getString("path"), args.getString("name")))))
+                .parameters(schema)
+                .build();
+    }
+
+    /** R16 备份任务状态 */
+    public static ToolDefinition queryBackupStatus(DocSysClient client) {
+        JSONObject schema = objSchema(props(strProp("taskId", "备份任务ID（必填）")), new String[]{"taskId"});
+        return ToolDefinition.builder("query_backup_status", "查询备份任务状态",
+                args -> ToolResult.ok(fmt(client.queryBackupStatus(args.getString("taskId")))))
+                .parameters(schema)
+                .build();
+    }
+
+    // ==================== RAG/搜索工具组（T3.3） ====================
+
+    /** R18 RAG 对话（基于文档上下文回答） */
+    public static ToolDefinition ragChat(DocSysClient client) {
+        JSONObject schema = objSchema(props(
+                strProp("query", "问题（必填）"),
+                strProp("modelName", "模型名（可选）"),
+                strProp("apiKey", "API Key（可选）")), new String[]{"query"});
+        return ToolDefinition.builder("rag_chat", "基于文档库上下文（RAG）回答用户问题",
+                args -> ToolResult.ok(fmtString(client.ragChat(
+                        args.getString("query"), args.getString("modelName"), args.getString("apiKey")))))
+                .parameters(schema)
+                .build();
+    }
+
+    /** R17 AI 对话（DocSys 后端 AIChat，SSE） */
+    public static ToolDefinition aiChat(DocSysClient client) {
+        JSONObject schema = objSchema(props(
+                strProp("message", "对话内容（必填）"),
+                strProp("llmName", "模型名（可选）")), new String[]{"message"});
+        return ToolDefinition.builder("ai_chat", "调用 DocSys 后端 AI 对话接口",
+                args -> ToolResult.ok(fmtString(client.chat(
+                        args.getString("message"), args.getString("llmName")))))
+                .parameters(schema)
+                .build();
+    }
+
+    // ==================== 写操作工具（T3.2，全部 needsConfirm） ====================
+
+    /** W1 创建仓库 */
+    public static ToolDefinition createRepos(DocSysClient client) {
+        JSONObject props = props(
+                strProp("name", "仓库名称（必填）"),
+                strProp("path", "存储路径（必填）"),
+                strProp("info", "描述（可选）"),
+                intProp("type", "仓库类型（0=本地，默认0）"),
+                intProp("verCtrl", "版本控制（0=无，1=SVN，2=GIT，可选）"));
+        JSONObject schema = objSchema(props, new String[]{"name", "path"});
+        return ToolDefinition.builder("create_repos", "创建新仓库",
+                args -> ToolResult.ok(fmt(client.addRepos(
+                        args.getString("name"), args.getString("info"),
+                        args.getInteger("type"), args.getString("path"),
+                        null, args.getInteger("verCtrl"), null, null, null, null, null,
+                        null, null, null, null, null, null))))
+                .parameters(schema)
+                .isWrite(true).needsConfirm(true)
+                .build();
+    }
+
+    /** W2 删除仓库 */
+    public static ToolDefinition deleteRepos(DocSysClient client) {
+        JSONObject schema = objSchema(props(intProp("vid", "仓库ID（必填）")), new String[]{"vid"});
+        return ToolDefinition.builder("delete_repos", "删除仓库（不可恢复，需确认）",
+                args -> ToolResult.ok(fmt(client.deleteRepos(args.getInteger("vid")))))
+                .parameters(schema)
+                .isWrite(true).needsConfirm(true)
+                .build();
+    }
+
+    /** W3 更新仓库信息 */
+    public static ToolDefinition updateRepos(DocSysClient client) {
+        JSONObject props = props(
+                intProp("reposId", "仓库ID（必填）"),
+                strProp("name", "新名称（可选）"),
+                strProp("info", "新描述（可选）"),
+                strProp("path", "新路径（可选）"));
+        JSONObject schema = objSchema(props, new String[]{"reposId"});
+        return ToolDefinition.builder("update_repos", "更新仓库信息",
+                args -> ToolResult.ok(fmt(client.updateReposInfo(
+                        args.getInteger("reposId"), args.getString("name"), args.getString("info"),
+                        null, args.getString("path"), null, null, null, null, null, null, null,
+                        null, null, null, null, null))))
+                .parameters(schema)
+                .isWrite(true).needsConfirm(true)
+                .build();
+    }
+
+    /** W4 创建文档/文件夹 */
+    public static ToolDefinition createDoc(DocSysClient client) {
+        JSONObject props = props(
+                intProp("vid", "仓库ID（必填）"),
+                strProp("name", "文档/文件夹名（必填）"),
+                longProp("pid", "父目录ID（可选，0=根）"),
+                strProp("path", "路径（可选）"),
+                intProp("type", "类型（0=文件，1=文件夹，默认0）"),
+                strProp("content", "文件内容（可选，type=0 时）"),
+                strProp("commitMsg", "提交信息（可选）"));
+        JSONObject schema = objSchema(props, new String[]{"vid", "name"});
+        return ToolDefinition.builder("create_doc", "创建文档或文件夹",
+                args -> ToolResult.ok(fmt(client.addDoc(
+                        args.getInteger("vid"), args.getLong("pid"), args.getString("path"),
+                        args.getString("name"), args.getInteger("type"), null,
+                        args.getString("content"), args.getString("commitMsg")))))
+                .parameters(schema)
+                .isWrite(true).needsConfirm(true)
+                .build();
+    }
+
+    /** W5 删除文档 */
+    public static ToolDefinition deleteDoc(DocSysClient client) {
+        JSONObject props = props(
+                intProp("vid", "仓库ID（必填）"),
+                longProp("docId", "文档ID"),
+                longProp("pid", "父目录ID（可选）"),
+                strProp("path", "路径（可选）"),
+                strProp("name", "文档名（可选）"),
+                strProp("commitMsg", "提交信息（可选）"));
+        JSONObject schema = objSchema(props, new String[]{"vid"});
+        return ToolDefinition.builder("delete_doc", "删除文档（需确认）",
+                args -> ToolResult.ok(fmt(client.deleteDoc(
+                        args.getInteger("vid"), args.getLong("docId"), args.getLong("pid"),
+                        args.getString("path"), args.getString("name"), null,
+                        args.getString("commitMsg")))))
+                .parameters(schema)
+                .isWrite(true).needsConfirm(true)
+                .build();
+    }
+
+    /** W6 重命名文档 */
+    public static ToolDefinition renameDoc(DocSysClient client) {
+        JSONObject props = props(
+                intProp("vid", "仓库ID（必填）"),
+                strProp("dstName", "新名称（必填）"),
+                longProp("docId", "文档ID"),
+                longProp("pid", "父目录ID（可选）"),
+                strProp("path", "路径（可选）"),
+                strProp("name", "原名（可选）"),
+                strProp("commitMsg", "提交信息（可选）"));
+        JSONObject schema = objSchema(props, new String[]{"vid", "dstName"});
+        return ToolDefinition.builder("rename_doc", "重命名文档",
+                args -> ToolResult.ok(fmt(client.renameDoc(
+                        args.getInteger("vid"), args.getLong("docId"), args.getLong("pid"),
+                        args.getString("path"), args.getString("name"), null,
+                        args.getString("dstName"), args.getString("commitMsg")))))
+                .parameters(schema)
+                .isWrite(true).needsConfirm(true)
+                .build();
+    }
+
+    /** W7 移动文档 */
+    public static ToolDefinition moveDoc(DocSysClient client) {
+        JSONObject props = props(
+                intProp("vid", "仓库ID（必填）"),
+                longProp("docId", "文档ID（必填）"),
+                longProp("dstPid", "目标目录ID（必填）"),
+                strProp("dstPath", "目标路径（可选）"),
+                strProp("dstName", "目标名（可选）"),
+                strProp("commitMsg", "提交信息（可选）"));
+        JSONObject schema = objSchema(props, new String[]{"vid", "docId", "dstPid"});
+        return ToolDefinition.builder("move_doc", "移动文档到其他目录",
+                args -> ToolResult.ok(fmt(client.moveDoc(
+                        args.getInteger("vid"), args.getLong("docId"), null, null, null, null,
+                        args.getLong("dstPid"), args.getString("dstPath"), args.getString("dstName"),
+                        null, null, args.getString("commitMsg")))))
+                .parameters(schema)
+                .isWrite(true).needsConfirm(true)
+                .build();
+    }
+
+    /** W8 复制文档 */
+    public static ToolDefinition copyDoc(DocSysClient client) {
+        JSONObject props = props(
+                intProp("vid", "仓库ID（必填）"),
+                longProp("docId", "文档ID（必填）"),
+                longProp("dstPid", "目标目录ID（必填）"),
+                strProp("dstPath", "目标路径（可选）"),
+                strProp("dstName", "目标名（可选）"),
+                strProp("commitMsg", "提交信息（可选）"));
+        JSONObject schema = objSchema(props, new String[]{"vid", "docId", "dstPid"});
+        return ToolDefinition.builder("copy_doc", "复制文档到其他目录",
+                args -> ToolResult.ok(fmt(client.copyDoc(
+                        args.getInteger("vid"), args.getLong("docId"), null, null, null, null,
+                        args.getLong("dstPid"), args.getString("dstPath"), args.getString("dstName"),
+                        null, null, args.getString("commitMsg")))))
+                .parameters(schema)
+                .isWrite(true).needsConfirm(true)
+                .build();
+    }
+
+    /** W10 锁定文档 */
+    public static ToolDefinition lockDoc(DocSysClient client) {
+        JSONObject props = props(
+                intProp("vid", "仓库ID（必填）"),
+                longProp("docId", "文档ID（必填）"),
+                strProp("path", "路径（可选）"),
+                strProp("name", "文档名（可选）"),
+                intProp("lockType", "锁定类型（默认1）"));
+        JSONObject schema = objSchema(props, new String[]{"vid", "docId"});
+        return ToolDefinition.builder("lock_doc", "锁定文档防止编辑",
+                args -> ToolResult.ok(fmt(client.lockDoc(
+                        args.getInteger("vid"), args.getLong("docId"), args.getString("path"),
+                        args.getString("name"), args.getInteger("lockType")))))
+                .parameters(schema)
+                .isWrite(true).needsConfirm(true)
+                .build();
+    }
+
+    /** W11 解锁文档 */
+    public static ToolDefinition unlockDoc(DocSysClient client) {
+        JSONObject props = props(
+                intProp("vid", "仓库ID（必填）"),
+                longProp("docId", "文档ID（必填）"),
+                strProp("path", "路径（可选）"),
+                strProp("name", "文档名（可选）"));
+        JSONObject schema = objSchema(props, new String[]{"vid", "docId"});
+        return ToolDefinition.builder("unlock_doc", "解锁文档恢复编辑",
+                args -> ToolResult.ok(fmt(client.unlockDoc(
+                        args.getInteger("vid"), args.getLong("docId"), args.getString("path"),
+                        args.getString("name")))))
+                .parameters(schema)
+                .isWrite(true).needsConfirm(true)
+                .build();
+    }
+
+    /** W12 创建文档分享 */
+    public static ToolDefinition createDocShare(DocSysClient client) {
+        JSONObject props = props(
+                intProp("vid", "仓库ID（必填）"),
+                longProp("docId", "文档ID（必填）"),
+                strProp("path", "路径（可选）"),
+                strProp("name", "文档名（可选）"),
+                intProp("shareType", "分享类型（可选）"),
+                strProp("sharePwd", "分享密码（可选）"),
+                longProp("expireTime", "过期时间戳（可选）"));
+        JSONObject schema = objSchema(props, new String[]{"vid", "docId"});
+        return ToolDefinition.builder("create_doc_share", "创建文档分享链接",
+                args -> ToolResult.ok(fmt(client.createDocShare(
+                        args.getInteger("vid"), args.getLong("docId"), args.getString("path"),
+                        args.getString("name"), args.getInteger("shareType"),
+                        args.getString("sharePwd"), args.getLong("expireTime")))))
+                .parameters(schema)
+                .isWrite(true).needsConfirm(true)
+                .build();
+    }
+
+    /** W13 触发仓库备份 */
+    public static ToolDefinition backupRepos(DocSysClient client) {
+        JSONObject props = props(
+                intProp("vid", "仓库ID（必填）"),
+                strProp("backupStorePath", "备份存储路径（可选）"));
+        JSONObject schema = objSchema(props, new String[]{"vid"});
+        return ToolDefinition.builder("backup_repos", "触发仓库完整备份",
+                args -> ToolResult.ok(fmt(client.backupRepos(
+                        args.getInteger("vid"), args.getString("backupStorePath")))))
+                .parameters(schema)
+                .isWrite(true).needsConfirm(true)
+                .build();
+    }
+
+    // ==================== Skill 工具（T4.4） ====================
+
+    /**
+     * 通用技能执行工具 —— 把 SkillExecutorRegistry 暴露给 LLM。
+     *
+     * <p>技能可执行任意逻辑（内置 Java handler / Python / CLI），故标记 isWrite + needsConfirm
+     * （执行前需用户确认）。由 MainAgent 在 per-request registry 上按需注册。</p>
+     *
+     * @param skillExecutorRegistry 技能执行注册表（可为 null → 不注册）
+     * @param context               当前 AgentContext
+     */
+    public static ToolDefinition runSkillTool(
+            com.DocSystem.agent.skill.executor.SkillExecutorRegistry skillExecutorRegistry,
+            com.DocSystem.agent.core.AgentContext context) {
+        JSONObject props = props(
+                strProp("skillId", "技能 ID（必填）"),
+                strProp("params", "技能参数（JSON 对象字符串，可选）"));
+        JSONObject schema = objSchema(props, new String[]{"skillId"});
+        String skillList = buildSkillListForPrompt();
+        String description = "执行指定技能（skill）。技能是系统预置或外部安装的能力模块（Python/CLI 自动化）。"
+                + (skillList.isEmpty() ? "" : " 可用技能: " + skillList);
+        return ToolDefinition.builder("run_skill", description,
+                args -> {
+                    String skillId = args.getString("skillId");
+                    if (skillId == null || skillId.isEmpty()) {
+                        return ToolResult.error("skillId is required");
+                    }
+                    java.util.Map<String, String> params = new java.util.HashMap<>();
+                    String paramsStr = args.getString("params");
+                    if (paramsStr != null && !paramsStr.isEmpty()) {
+                        try {
+                            JSONObject p = JSON.parseObject(paramsStr);
+                            if (p != null) {
+                                for (Map.Entry<String, Object> e : p.entrySet()) {
+                                    params.put(e.getKey(), String.valueOf(e.getValue()));
+                                }
+                            }
+                        } catch (Exception pe) {
+                            return ToolResult.error("params 不是合法 JSON: " + pe.getMessage());
+                        }
+                    }
+                    com.DocSystem.agent.skill.executor.SkillExecutionResult r =
+                            skillExecutorRegistry.execute(skillId, params, context);
+                    if (r.success()) {
+                        return ToolResult.ok(r.output() != null ? truncate(r.output()) : "(skill ok)");
+                    }
+                    return ToolResult.error(r.error() != null ? r.error() : "skill execution failed");
+                })
+                .parameters(schema)
+                .isWrite(true).needsConfirm(true)
+                .build();
+    }
+
+    // ==================== 辅助 ====================
+
+    /**
+     * 构建可用技能清单文本（供 run_skill 描述注入提示词）。
+     * 从 EnhancedSkillManager 读取（含目录加载的外部技能），截断防上下文膨胀。
+     */
+    private static String buildSkillListForPrompt() {
+        try {
+            java.util.Collection<com.DocSystem.agent.skill.EnhancedSkill> skills =
+                    com.DocSystem.agent.skill.EnhancedSkillManager.getInstance().getAllSkills();
+            if (skills == null || skills.isEmpty()) {
+                return "";
+            }
+            StringBuilder sb = new StringBuilder();
+            int budget = 1500;
+            for (com.DocSystem.agent.skill.EnhancedSkill s : skills) {
+                if (s == null || s.getId() == null) continue;
+                String name = s.getName() != null ? s.getName() : s.getId();
+                String desc = s.getDescription() != null ? s.getDescription() : "";
+                String item = s.getId() + "(" + name + (desc.isEmpty() ? "" : ": " + desc) + "); ";
+                if (budget - item.length() < 0) {
+                    sb.append("...");
+                    break;
+                }
+                sb.append(item);
+                budget -= item.length();
+            }
+            return sb.toString();
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    /** 格式化 DocSysClient 返回的 Map 为紧凑文本（截断防上下文膨胀） */
+    private static String fmt(Map<String, Object> result) {
+        if (result == null) {
+            return "(empty response)";
+        }
+        String json = JSON.toJSONString(result);
+        return truncate(json);
+    }
+
+    /** 格式化 String 返回（如 RAG/AIChat 的 SSE 原文）为紧凑文本 */
+    private static String fmtString(String result) {
+        if (result == null) {
+            return "(empty response)";
+        }
+        return truncate(result);
+    }
+
+    private static String truncate(String s) {
+        if (s.length() > MAX_SUMMARY_LEN) {
+            return s.substring(0, MAX_SUMMARY_LEN) + "...(truncated)";
+        }
+        return s;
+    }
+
+    private static JSONObject objSchema(JSONObject props, String[] required) {
+        JSONObject schema = new JSONObject();
+        schema.put("type", "object");
+        schema.put("properties", props);
+        if (required != null) {
+            schema.put("required", required);
+        }
+        return schema;
+    }
+
+    private static JSONObject props(JSONObject... entries) {
+        JSONObject props = new JSONObject();
+        for (JSONObject e : entries) {
+            if (e != null) {
+                props.putAll(e);
+            }
+        }
+        return props;
+    }
+
+    /** 生成 {name: {type, description}} 单属性条目 */
+    private static JSONObject strProp(String name, String desc) {
+        JSONObject o = new JSONObject();
+        o.put("type", "string");
+        o.put("description", desc);
+        JSONObject entry = new JSONObject();
+        entry.put(name, o);
+        return entry;
+    }
+
+    /** 生成 {name: {type: integer, description}} 单属性条目 */
+    private static JSONObject intProp(String name, String desc) {
+        JSONObject o = new JSONObject();
+        o.put("type", "integer");
+        o.put("description", desc);
+        JSONObject entry = new JSONObject();
+        entry.put(name, o);
+        return entry;
+    }
+
+    /** 生成 {name: {type: integer, description}} 单属性条目（long 语义） */
+    private static JSONObject longProp(String name, String desc) {
+        JSONObject o = new JSONObject();
+        o.put("type", "integer");
+        o.put("description", desc);
+        JSONObject entry = new JSONObject();
+        entry.put(name, o);
+        return entry;
+    }
+}

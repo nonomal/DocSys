@@ -32,6 +32,7 @@ public class DatabaseInitializer {
     /** All required DocSysAgent tables */
     private static final String[] REQUIRED_TABLES = {
         "agent_sessions",
+        "agent_session_messages",
         "agent_tasks",
         "audit_logs",
         "skill_metadata",
@@ -63,6 +64,18 @@ public class DatabaseInitializer {
             + "INDEX idx_last_active (last_active),"
             + "INDEX idx_expires (expires_at)"
             + ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Agent session table (MariaDB 10.1 compatible)'",
+
+        // agent_session_messages
+        "CREATE TABLE IF NOT EXISTS agent_session_messages ("
+            + "id BIGINT PRIMARY KEY AUTO_INCREMENT,"
+            + "session_id VARCHAR(64) NOT NULL COMMENT 'Agent session ID',"
+            + "role VARCHAR(16) NOT NULL COMMENT 'user/assistant/system/tool',"
+            + "content LONGTEXT COMMENT 'Message content',"
+            + "seq INT NOT NULL COMMENT 'Message sequence within session',"
+            + "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,"
+            + "INDEX idx_session_seq (session_id, seq),"
+            + "INDEX idx_created (created_at)"
+            + ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Agent session message history (MariaDB 10.1 compatible)'",
 
         // agent_tasks
         "CREATE TABLE IF NOT EXISTS agent_tasks ("
@@ -307,6 +320,16 @@ public class DatabaseInitializer {
             + "UNIQUE (session_id)"
             + ")",
 
+        // agent_session_messages
+        "CREATE TABLE IF NOT EXISTS agent_session_messages ("
+            + "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+            + "session_id VARCHAR(64) NOT NULL,"
+            + "role VARCHAR(16) NOT NULL,"
+            + "content TEXT,"
+            + "seq INT NOT NULL,"
+            + "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
+            + ")",
+
         // agent_tasks
         "CREATE TABLE IF NOT EXISTS agent_tasks ("
             + "id INTEGER PRIMARY KEY AUTOINCREMENT,"
@@ -497,6 +520,9 @@ public class DatabaseInitializer {
         "CREATE INDEX IF NOT EXISTS agent_sessions_idx_username ON agent_sessions (username)",
         "CREATE INDEX IF NOT EXISTS agent_sessions_idx_last_active ON agent_sessions (last_active)",
         "CREATE INDEX IF NOT EXISTS agent_sessions_idx_expires ON agent_sessions (expires_at)",
+        // agent_session_messages
+        "CREATE INDEX IF NOT EXISTS agent_session_messages_idx_session_seq ON agent_session_messages (session_id, seq)",
+        "CREATE INDEX IF NOT EXISTS agent_session_messages_idx_created ON agent_session_messages (created_at)",
         // agent_tasks
         "CREATE INDEX IF NOT EXISTS agent_tasks_idx_status ON agent_tasks (status)",
         "CREATE INDEX IF NOT EXISTS agent_tasks_idx_session ON agent_tasks (session_id)",

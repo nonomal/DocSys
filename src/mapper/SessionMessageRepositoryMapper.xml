@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.DocSystem.agent.session.SessionMessageRepository">
+
+    <resultMap id="SessionMessageEntityResultMap" type="com.DocSystem.agent.session.SessionMessageEntity">
+        <id property="id" column="id"/>
+        <result property="sessionId" column="session_id"/>
+        <result property="role" column="role"/>
+        <result property="content" column="content"/>
+        <result property="seq" column="seq"/>
+        <result property="createdAt" column="created_at"/>
+    </resultMap>
+
+    <insert id="insert" parameterType="com.DocSystem.agent.session.SessionMessageEntity" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO agent_session_messages (session_id, role, content, seq, created_at)
+        VALUES (#{sessionId}, #{role}, #{content}, #{seq}, #{createdAt})
+    </insert>
+
+    <select id="maxSeq" resultType="java.lang.Integer">
+        SELECT COALESCE(MAX(seq), 0) FROM agent_session_messages WHERE session_id = #{sessionId}
+    </select>
+
+    <select id="selectBySessionIdOrderBySeq" resultMap="SessionMessageEntityResultMap">
+        SELECT * FROM agent_session_messages WHERE session_id = #{sessionId} ORDER BY seq ASC
+    </select>
+
+    <select id="countBySessionId" resultType="int">
+        SELECT COUNT(*) FROM agent_session_messages WHERE session_id = #{sessionId}
+    </select>
+
+    <delete id="deleteBySessionId">
+        DELETE FROM agent_session_messages WHERE session_id = #{sessionId}
+    </delete>
+
+</mapper>

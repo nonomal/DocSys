@@ -92,6 +92,41 @@ public class MainAgent {
 
     @Autowired(required = false)
     private Replanner replanner;
+
+    @Autowired(required = false)
+    private com.DocSystem.agent.controller.AuditLogService auditLogService;
+
+    @Autowired(required = false)
+    private com.DocSystem.agent.monitoring.AgentMetrics agentMetrics;
+
+    @Autowired(required = false)
+    private com.DocSystem.agent.session.ConversationHistoryService conversationHistoryService;
+
+    /** ToolUseLoop 灰度开关（默认开；可配置关闭回退旧 decomposeTask） */
+    @org.springframework.beans.factory.annotation.Value("${agent.tool-loop.enabled:true}")
+    private boolean toolLoopEnabled;
+
+    /**
+     * SSE 路径已尝试过 ToolUseLoop 的线程标记：回退 legacy 时跳过 process() 里的 ToolUseLoop，
+     * 避免 LLM 被反复调用（ThreadLocal 作用域 = 同一请求线程，try/finally 清理）。
+     */
+    private static final ThreadLocal<Boolean> TOOL_LOOP_ATTEMPTED = new ThreadLocal<>();
+
+    /** SSE 路径在回退 runCommand 前调用，标记已尝试过 ToolUseLoop */
+    public static void markToolLoopAttempted() {
+        TOOL_LOOP_ATTEMPTED.set(Boolean.TRUE);
+    }
+
+    /** 当前线程是否已尝试过 ToolUseLoop（由 process() 读取并清除） */
+    private static boolean consumeToolLoopAttempted() {
+        Boolean v = TOOL_LOOP_ATTEMPTED.get();
+        TOOL_LOOP_ATTEMPTED.remove();
+        return v != null && v;
+    }
+
+    /** 写操作确认超时（秒） */
+    @org.springframework.beans.factory.annotation.Value("${agent.tool-loop.confirm-timeout:120}")
+    private long toolLoopConfirmTimeoutSeconds;
     
     public MainAgent(DocSysClient docSysClient) {
         this.docSysClient = docSysClient;
@@ -197,6 +232,23 @@ public class MainAgent {
 
         // 使用传入的 per-session DocSysClient，或创建新的
         DocSysClient authenticatedClient = client != null ? client : this.docSysClient;
+
+        // ===== ToolUseLoop 路径（灰度开关 或 /tool 前缀强制触发） =====
+        // 安全测试机制：`/tool <查询>` 前缀强制走 ToolUseLoop，其余请求不受影响
+        boolean forceToolLoop = userQuery != null && userQuery.trim().startsWith("/tool");
+        String toolQuery = forceToolLoop ? userQuery.trim().substring(5).trim() : userQuery;
+        boolean toolLoopAlreadyAttempted = consumeToolLoopAttempted();
+        if ((toolLoopEnabled || forceToolLoop) && !toolLoopAlreadyAttempted) {
+            log.info("ToolUseLoop {} — routing query: {}",
+                    forceToolLoop ? "(forced by /tool prefix)" : "(enabled)", toolQuery);
+            AgentResponse toolResp = runToolUseLoop(toolQuery, context, authenticatedClient,
+                    resolvedLlm, sessionInfo, null, null);
+            if (toolResp != null) {
+                return toolResp;
+            }
+            // ToolUseLoop 失败 → 回退旧路径（保留灰度安全网）
+            log.warn("ToolUseLoop failed, falling back to legacy path");
+        }
 
         // 提取用户信息用于学习系统
         String userId = extractUserId(sessionInfo);
@@ -373,7 +425,122 @@ public class MainAgent {
             return AgentResponse.error("Failed to process query: " + e.getMessage());
         }
     }
-    
+
+    /**
+     * 运行 ToolUseLoop（可复用入口，供 MainAgent.process 与 AgentController SSE 路径共用）。
+     *
+     * @param toolQuery   查询（已剥离 /tool 前缀）
+     * @param context     当前 AgentContext
+     * @param client      per-request DocSysClient（会话隔离）
+     * @param resolvedLlm 用户选定模型（可为 null → 系统默认）
+     * @param sessionInfo 会话信息
+     * @param confirmSink SSE 确认事件推送器（可为 null → confirmToken 仅日志/审计可见）
+     * @return 成功 → AgentResponse；失败/异常 → null（调用方回退旧路径）
+     */
+    public AgentResponse runToolUseLoop(String toolQuery, AgentContext context, DocSysClient client,
+                                        com.DocSystem.agent.llm.ResolvedLlmConfig resolvedLlm,
+                                        Object sessionInfo,
+                                        com.DocSystem.agent.tool.ConfirmEventSink confirmSink) {
+        return runToolUseLoop(toolQuery, context, client, resolvedLlm, sessionInfo, confirmSink, null);
+    }
+
+    /**
+     * 运行 ToolUseLoop（可复用入口，供 MainAgent.process 与 AgentController SSE 路径共用）。
+     *
+     * @param toolQuery   查询（已剥离 /tool 前缀）
+     * @param context     当前 AgentContext
+     * @param client      per-request DocSysClient（会话隔离）
+     * @param resolvedLlm 用户选定模型（可为 null → 系统默认）
+     * @param sessionInfo 会话信息
+     * @param confirmSink SSE 确认事件推送器（可为 null → confirmToken 仅日志/审计可见）
+     * @param historySessionId 会话历史 ID（续接时加载历史消息作为上下文，可为 null）
+     * @return 成功 → AgentResponse；失败/异常 → null（调用方回退旧路径）
+     */
+    public AgentResponse runToolUseLoop(String toolQuery, AgentContext context, DocSysClient client,
+                                        com.DocSystem.agent.llm.ResolvedLlmConfig resolvedLlm,
+                                        Object sessionInfo,
+                                        com.DocSystem.agent.tool.ConfirmEventSink confirmSink,
+                                        String historySessionId) {
+        try {
+            com.DocSystem.agent.tool.ToolRegistry registry =
+                    com.DocSystem.agent.tool.DocSysToolFactory.createFullRegistry(client);
+            // Skill 作为工具暴露（T4.4）：有 SkillExecutorRegistry 时注册 run_skill
+            if (skillExecutorRegistry != null) {
+                registry.register(com.DocSystem.agent.tool.DocSysToolFactory.runSkillTool(
+                        skillExecutorRegistry, context));
+            }
+            final String toolUserId = extractUserId(sessionInfo);
+            final String toolSessionId = context != null ? context.getSessionId() : null;
+            final String toolTraceId = org.slf4j.MDC.get("traceId");
+            final String toolClientIp = org.slf4j.MDC.get("clientIp");
+            // 写操作确认门（对接审计 + 轮询等待用户经 /confirm 批准 + 可选 SSE 推送）
+            com.DocSystem.agent.tool.AuditWriteConfirmGate gate = new com.DocSystem.agent.tool.AuditWriteConfirmGate(
+                    auditLogService, toolUserId, toolSessionId, toolClientIp, toolTraceId,
+                    toolLoopConfirmTimeoutSeconds);
+            gate.setConfirmEventSink(confirmSink);
+            registry.setConfirmGate(gate);
+            // 执行监听器：写工具落审计 + 指标打点（T4.2/T4.3）
+            registry.setExecutionListener((tool, args, result, durationMs) -> {
+                if (agentMetrics != null) {
+                    agentMetrics.incrementCounter("agent.tool.call", "tool", tool.name,
+                            "write", String.valueOf(tool.isWrite),
+                            "success", String.valueOf(result.success));
+                }
+                if (tool.isWrite && auditLogService != null) {
+                    java.util.Map<String, String> params = new java.util.HashMap<>();
+                    if (args != null) {
+                        for (java.util.Map.Entry<String, Object> e : args.entrySet()) {
+                            params.put(e.getKey(), String.valueOf(e.getValue()));
+                        }
+                    }
+                    auditLogService.record(toolUserId, toolSessionId, tool.name, params,
+                            toolClientIp, toolTraceId, result.success,
+                            result.success ? "Tool executed" : result.error);
+                }
+            });
+            boolean isAdmin = extractIsAdmin(sessionInfo);
+            com.DocSystem.agent.orchestrator.ToolUseLoop loop =
+                    com.DocSystem.agent.orchestrator.ToolUseLoop.forLlmService(
+                            llmService, registry, resolvedLlm, isAdmin);
+            // T5.2b 会话记忆：续接会话时加载历史消息作为上下文
+            java.util.List<java.util.Map<String, String>> priorHistory = loadSessionHistory(historySessionId);
+            long loopStart = System.currentTimeMillis();
+            com.DocSystem.agent.orchestrator.ToolUseResult tr = loop.run(toolQuery, priorHistory);
+            long duration = System.currentTimeMillis() - loopStart;
+            log.info("ToolUseLoop finished: success={}, turns={}, toolCalls={}, cost={}ms",
+                    tr.success, tr.turns, tr.toolCalls, duration);
+            if (agentMetrics != null) {
+                agentMetrics.recordExecution("tool_loop", duration, tr.success);
+                agentMetrics.incrementCounter("agent.tool.loop",
+                        "success", String.valueOf(tr.success),
+                        "turns", String.valueOf(tr.turns));
+            }
+            if (tr.success) {
+                AgentResponse resp = AgentResponse.ok(tr.message);
+                resp.withProcessingTime(duration);
+                resp.addMetadata("toolLoop", "turns=" + tr.turns + ", toolCalls=" + tr.toolCalls);
+                return resp;
+            }
+
+            // T5.1 失败重试：maxTurnsExceeded / 畸形终止时，注入"直接回答"提示重试一次
+            log.warn("ToolUseLoop failed ({}), retrying once with direct-answer hint", tr.message);
+            com.DocSystem.agent.orchestrator.ToolUseResult retry = loop.run(
+                    toolQuery + "\n\n[SYSTEM] 如果无法通过工具完成，请直接基于已有信息回答用户，或说明限制。",
+                    priorHistory);
+            if (retry.success) {
+                log.info("ToolUseLoop retry succeeded: turns={}, toolCalls={}", retry.turns, retry.toolCalls);
+                AgentResponse resp = AgentResponse.ok(retry.message);
+                resp.withProcessingTime(System.currentTimeMillis() - loopStart);
+                resp.addMetadata("toolLoop", "retry=true, turns=" + retry.turns + ", toolCalls=" + retry.toolCalls);
+                return resp;
+            }
+            return null;
+        } catch (Exception e) {
+            log.error("ToolUseLoop exception", e);
+            return null;
+        }
+    }
+
     /**
      * 从sessionInfo提取用户ID
      */
@@ -383,7 +550,40 @@ public class MainAgent {
         }
         return null;
     }
-    
+
+    /**
+     * 加载会话历史（T5.2b）：取 user/assistant 消息作为 LLM 上下文（最多保留最近 20 条，防上下文膨胀）。
+     */
+    private java.util.List<java.util.Map<String, String>> loadSessionHistory(String historySessionId) {
+        if (historySessionId == null || historySessionId.isEmpty() || conversationHistoryService == null) {
+            return null;
+        }
+        try {
+            java.util.List<com.DocSystem.agent.session.SessionMessageEntity> history =
+                    conversationHistoryService.getHistory(historySessionId);
+            if (history == null || history.isEmpty()) {
+                return null;
+            }
+            java.util.List<java.util.Map<String, String>> result = new java.util.ArrayList<>();
+            int start = Math.max(0, history.size() - 20); // 只取最近 20 条
+            for (int i = start; i < history.size(); i++) {
+                com.DocSystem.agent.session.SessionMessageEntity m = history.get(i);
+                String role = m.getRole();
+                if (!"user".equals(role) && !"assistant".equals(role)) {
+                    continue;
+                }
+                java.util.Map<String, String> msg = new java.util.HashMap<>();
+                msg.put("role", role);
+                msg.put("content", m.getContent() != null ? m.getContent() : "");
+                result.add(msg);
+            }
+            return result.isEmpty() ? null : result;
+        } catch (Exception e) {
+            log.warn("loadSessionHistory failed: {}", e.getMessage());
+            return null;
+        }
+    }
+
     /**
      * 从sessionInfo提取租户ID
      */
@@ -392,6 +592,15 @@ public class MainAgent {
             return ((AgentController.SessionInfo) sessionInfo).tenantId;
         }
         return null;
+    }
+
+    /**
+     * 判断当前用户是否管理员（用于 adminOnly 工具可见性）。
+     * 当前简单实现：Admin 用户名视为管理员；后续可对接角色服务精确判断。
+     */
+    private boolean extractIsAdmin(Object sessionInfo) {
+        String username = extractUserId(sessionInfo);
+        return username != null && "Admin".equalsIgnoreCase(username);
     }
     
     /**

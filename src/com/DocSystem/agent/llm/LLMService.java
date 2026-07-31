@@ -333,6 +333,37 @@ public class LLMService {
     }
 
     /**
+     * 无状态对话重载：直接传入完整消息列表（含自定义 system prompt / tool 结果），
+     * 不管理 conversationHistory，不写共享字段。
+     *
+     * <p>供 ToolUseLoop（工具推理循环）使用——它需要自行控制 system 提示词
+     * 与工具执行结果回灌，无法复用按 sessionId 管理的对话历史。</p>
+     *
+     * @param messages 完整消息列表（role ∈ system/user/assistant）
+     * @param resolved 请求级模型配置；null 时回退系统默认（只读解析，不写共享字段）
+     * @return LLM 原始输出
+     */
+    public String chat(List<Map<String, String>> messages, ResolvedLlmConfig resolved) throws IOException {
+        if (resolved == null) {
+            resolved = resolveDefaultConfig();
+        }
+        // 目标配置全部来自 resolved（请求级局部变量），不写共享字段
+        String chatEndpoint = resolved.endpoint;
+        String chatModel = resolved.model;
+        String chatApiKey = resolved.apiKey;
+
+        // Circuit breaker: primary/backup switching
+        if (hasBackup && isPrimaryCircuitOpen()) {
+            log.info("Primary LLM circuit breaker OPEN — switching to backup endpoint");
+            chatEndpoint = backupEndpoint;
+            chatModel = backupModel.isEmpty() ? defaultModel : backupModel;
+            chatApiKey = apiKey;
+        }
+
+        return doChat(chatEndpoint, chatModel, chatApiKey, messages);
+    }
+
+    /**
      * Clear conversation history
      */
     public void clearHistory(String sessionId) {
@@ -495,6 +526,31 @@ public class LLMService {
         } catch (Exception e) {
             log.warn("refreshFromSystemConfig failed (ignored, will use existing config): {}", e.getMessage());
         }
+    }
+
+    /**
+     * 只读解析系统默认 LLM 配置（不写共享字段，无并发竞态）。
+     *
+     * <p>供无状态入口（{@link #chat(List, ResolvedLlmConfig)}）在 resolved=null 时回退使用：
+     * 优先从 DocSystem 内存配置 {@code systemLLMConfig} 取第一个模型；
+     * 未配置时回退当前共享字段（只读）。</p>
+     */
+    private ResolvedLlmConfig resolveDefaultConfig() {
+        try {
+            com.DocSystem.common.entity.SystemLLMConfig cfg =
+                com.DocSystem.common.BaseFunction.systemLLMConfig;
+            if (cfg != null && cfg.enabled
+                    && cfg.llmConfigList != null && !cfg.llmConfigList.isEmpty()) {
+                com.DocSystem.common.entity.LLMConfig m = cfg.llmConfigList.get(0);
+                if (m != null && m.url != null && !m.url.isEmpty()) {
+                    String modelName = m.modelName != null ? m.modelName : defaultModel;
+                    return new ResolvedLlmConfig(m.url, modelName, m.apikey, modelName);
+                }
+            }
+        } catch (Exception e) {
+            log.warn("resolveDefaultConfig failed (using shared fields): {}", e.getMessage());
+        }
+        return new ResolvedLlmConfig(endpoint, defaultModel, apiKey, defaultModel);
     }
 
     /**

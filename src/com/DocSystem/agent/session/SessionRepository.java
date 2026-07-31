@@ -18,6 +18,8 @@ public interface SessionRepository {
 
     int updateLastActive(@Param("sessionId") String sessionId, @Param("now") LocalDateTime now);
 
+    int updateMetadata(@Param("sessionId") String sessionId, @Param("metadata") String metadata);
+
     int deleteBySessionId(@Param("sessionId") String sessionId);
 
     int deleteInactiveBefore(@Param("cutoff") LocalDateTime cutoff);

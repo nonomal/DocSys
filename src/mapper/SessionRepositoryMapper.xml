@@ -31,6 +31,10 @@
         UPDATE agent_sessions SET last_active = #{now} WHERE session_id = #{sessionId}
     </update>
 
+    <update id="updateMetadata">
+        UPDATE agent_sessions SET metadata = #{metadata} WHERE session_id = #{sessionId}
+    </update>
+
     <delete id="deleteBySessionId">
         DELETE FROM agent_sessions WHERE session_id = #{sessionId}
     </delete>

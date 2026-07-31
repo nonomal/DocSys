@@ -265,6 +265,29 @@ public class AuditLogService {
     }
 
     /**
+     * 直接记录一条终端审计（COMPLETED/FAILED，无 PENDING 确认流程）。
+     * 供 ToolUseLoop 工具执行审计使用（T4.2）：写操作工具执行后立即落审计。
+     *
+     * @param success true=COMPLETED / false=FAILED
+     */
+    @Transactional
+    public void record(String userId, String sessionId, String operation,
+                       Map<String, String> params, String clientIp, String traceId,
+                       boolean success, String resultMessage) {
+        AuditLogEntity entry = new AuditLogEntity()
+                .withUserId(userId != null ? userId : "anonymous")
+                .withSessionId(sessionId)
+                .withOperation(operation)
+                .withOperationParams(sanitizeParams(params))
+                .withStatus(success ? OperationStatus.COMPLETED : OperationStatus.FAILED)
+                .withClientIp(clientIp)
+                .withTraceId(traceId);
+        entry.setCreatedAt(LocalDateTime.now());
+        auditLogRepository.insert(entry);
+        log.info("Audit recorded: operation={}, userId={}, success={}", operation, userId, success);
+    }
+
+    /**
      * Get pending audit log entry by confirm token.
      * Only returns entries that are still PENDING.
      */
@@ -274,6 +297,16 @@ public class AuditLogService {
             return entry;
         }
         return null;
+    }
+
+    /**
+     * 查询确认条目当前状态（供写操作确认门区分 approve/reject）。
+     *
+     * @return "PENDING"/"APPROVED"/"REJECTED"/"COMPLETED"/"FAILED"；条目不存在 → null
+     */
+    public String getStatusByConfirmToken(String confirmToken) {
+        AuditLogEntity entry = auditLogRepository.findByConfirmToken(confirmToken);
+        return entry != null && entry.getStatus() != null ? entry.getStatus().name() : null;
     }
 
     /**

@@ -217,6 +217,29 @@
             color: #555;
             font-size: 13px;
             transition: all 0.2s;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 6px;
+        }
+        
+        .session-item .session-title {
+            flex: 1;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        
+        .session-item .session-del {
+            display: none;
+            color: #c00;
+            font-size: 12px;
+            cursor: pointer;
+            padding: 0 2px;
+        }
+        
+        .session-item:hover .session-del {
+            display: inline;
         }
         
         .session-item:hover {
@@ -1893,6 +1916,43 @@
             return res.json();
         },
 
+        // ==================== 会话历史持久化（T5.2a） ====================
+        async listSessions() {
+            try {
+                const res = await fetch(API_BASE + '/sessions');
+                if (res.ok) return await res.json();
+            } catch (e) { console.warn('listSessions failed:', e); }
+            return null;
+        },
+
+        async createSession(title) {
+            try {
+                const res = await fetch(API_BASE + '/sessions', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ title: title || null })
+                });
+                if (res.ok) return await res.json();
+            } catch (e) { console.warn('createSession failed:', e); }
+            return null;
+        },
+
+        async getSessionMessages(sessionId) {
+            try {
+                const res = await fetch(API_BASE + '/sessions/' + encodeURIComponent(sessionId) + '/messages');
+                if (res.ok) return await res.json();
+            } catch (e) { console.warn('getSessionMessages failed:', e); }
+            return null;
+        },
+
+        async deleteSession(sessionId) {
+            try {
+                const res = await fetch(API_BASE + '/sessions/' + encodeURIComponent(sessionId), { method: 'DELETE' });
+                return res.ok;
+            } catch (e) { console.warn('deleteSession failed:', e); }
+            return false;
+        },
+
         // ==================== Evolution API ====================
         async getEvolutionStats() {
             try {
@@ -2588,18 +2648,66 @@
 
     function renderSessions() {
         var list = document.getElementById('sessionList');
-        if (state.sessions.length === 0) {
-            list.innerHTML = '<div class="session-item">默认会话</div>';
+        if (!state.sessions || state.sessions.length === 0) {
+            list.innerHTML = '<div class="session-item">暂无会话</div>';
             return;
         }
         
         var html = '';
         for (var i = 0; i < state.sessions.length; i++) {
             var s = state.sessions[i];
-            html += '<div class="session-item' + (state.currentSession === s.id ? ' active' : '') + '" data-id="' + s.id + '">';
-            html += '<span>' + s.name + '</span></div>';
+            var isActive = state.currentSession === s.sessionId;
+            html += '<div class="session-item' + (isActive ? ' active' : '') + '" data-id="' + s.sessionId + '">';
+            html += '<span class="session-title" title="' + (s.title || '新会话') + '">' + (s.title || '新会话') + '</span>';
+            html += '<span class="session-del" title="删除会话">✕</span>';
+            html += '</div>';
         }
         list.innerHTML = html;
+
+        // 删除按钮事件（阻止冒泡，不触发选择）
+        list.querySelectorAll('.session-del').forEach(function(del) {
+            del.addEventListener('click', async function(e) {
+                e.stopPropagation();
+                var id = del.closest('.session-item').dataset.id;
+                if (!confirm('删除该会话及其历史消息？')) return;
+                var ok = await API.deleteSession(id);
+                if (ok) {
+                    state.sessions = state.sessions.filter(function(s) { return s.sessionId !== id; });
+                    if (state.currentSession === id) {
+                        state.currentSession = null;
+                        state.sessionId = null;
+                        state.messages = [];
+                        renderMessages();
+                    }
+                    renderSessions();
+                }
+            });
+        });
+    }
+
+    /** 从服务端加载会话列表 */
+    async function loadSessionsFromServer() {
+        var data = await API.listSessions();
+        if (!data || !data.data) return;
+        state.sessions = data.data;
+        // 当前会话不在列表中（或没有当前会话）→ 选中最近一个
+        var currentExists = state.sessions.some(function(s) { return s.sessionId === state.currentSession; });
+        if (!currentExists && state.sessions.length > 0) {
+            state.currentSession = state.sessions[0].sessionId;
+            state.sessionId = state.currentSession;
+            await loadSessionMessages(state.currentSession);
+        }
+        renderSessions();
+    }
+
+    /** 加载指定会话的历史消息 */
+    async function loadSessionMessages(sessionId) {
+        var data = await API.getSessionMessages(sessionId);
+        if (!data || !data.data) return;
+        state.messages = (data.data || []).map(function(m) {
+            return { role: m.role, content: m.content || '', time: m.createdAt || '' };
+        });
+        renderMessages();
     }
 
     function renderSkills() {
@@ -2695,6 +2803,17 @@
         var isSessionExpired = false;
 
         try {
+            // T5.2a：无会话时自动创建一个（续接入口的基础）
+            if (!state.sessionId) {
+                var created = await API.createSession(null);
+                if (created && created.data && created.data.sessionId) {
+                    state.sessionId = created.data.sessionId;
+                    state.currentSession = state.sessionId;
+                    state.sessions.unshift({ sessionId: state.sessionId, title: '新会话' });
+                    renderSessions();
+                }
+            }
+
             var url = API_BASE + '/stream?command=' + encodeURIComponent(content);
             if (state.sessionId) url += '&sessionId=' + encodeURIComponent(state.sessionId);
             if (state.selectedModelId) url += '&modelId=' + encodeURIComponent(state.selectedModelId);
@@ -2804,6 +2923,11 @@
         state.abortController = null;
         updateSendButton(); // Show send button
         renderMessages();
+
+        // T5.2a：刷新会话列表（更新标题/时间）
+        if (state.sessionId) {
+            setTimeout(function() { loadSessionsFromServer(); }, 800);
+        }
 
         // Refresh soul evolution data after interaction
         setTimeout(refreshSoulData, 1000);
@@ -3571,24 +3695,30 @@
     });
     
     // New session
-    document.getElementById('newSessionBtn').addEventListener('click', function() {
-        var newId = 'session_' + Date.now();
-        state.sessions.push({ id: newId, name: '新会话' });
-        state.currentSession = newId;
-        state.messages = [];
-        renderSessions();
-        renderMessages();
-    });
-    
-    // Session click
-    document.getElementById('sessionList').addEventListener('click', function(e) {
-        var item = e.target.closest('.session-item');
-        if (item) {
-            state.currentSession = item.dataset.id;
+    document.getElementById('newSessionBtn').addEventListener('click', async function() {
+        var created = await API.createSession(null);
+        if (created && created.data && created.data.sessionId) {
+            var sid = created.data.sessionId;
+            state.sessions.unshift({ sessionId: sid, title: '新会话' });
+            state.currentSession = sid;
+            state.sessionId = sid;
             state.messages = [];
             renderSessions();
             renderMessages();
+        } else {
+            showMessage('创建会话失败', 'error');
         }
+    });
+    
+    // Session click
+    document.getElementById('sessionList').addEventListener('click', async function(e) {
+        var item = e.target.closest('.session-item');
+        if (!item) return;
+        if (e.target.closest('.session-del')) return; // 删除按钮已单独处理
+        state.currentSession = item.dataset.id;
+        state.sessionId = item.dataset.id;
+        await loadSessionMessages(item.dataset.id);
+        renderSessions();
     });
 
     // ==================== Startup: shared DocSystem session ====================
@@ -3598,16 +3728,13 @@
     function enterApp(user) {
         state.isLoggedIn = true;
         state.username = (user && user.name) ? user.name : '';
-        if (!state.sessions || state.sessions.length === 0) {
-            state.sessions = [{ id: 'default', name: '新会话' }];
-            state.currentSession = 'default';
-        }
         switchView('app');
         renderSessions();
         renderMessages();
         updateSendButton();
         refreshSoulData();
         loadModels();
+        loadSessionsFromServer();   // T5.2a 从服务端加载会话历史
     }
 
     // ==================== 模型选择 ====================
