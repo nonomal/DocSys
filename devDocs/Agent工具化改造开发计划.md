@@ -290,7 +290,7 @@
         - 完成记录：实测单轮对话首 reasoning 分片 458ms / 首 text 分片 2053ms / done 4836ms——首分片远早于整轮耗时，流式收益成立。
 
   - [x] **T8. 后续增强（P0/P1 候选，2026-07-31 用户排期按序执行）**
-    - 当前状态：进行中（T8.1 已完成，T8.2-T8.6 待执行）。源自全局状态第 7 条"后续候选"名单 + T5.3 发现的 DocSystem 核心 bug；用户明确按下列顺序执行。
+    - 当前状态：进行中（T8.1 已完成；T8.2 暂缓待手动验证；T8.3 进行中）。源自全局状态第 7 条"后续候选"名单 + T5.3 发现的 DocSystem 核心 bug；用户明确按下列顺序执行。
     - [x] T8.1 修复 DocSystem 核心 bug：getDoc.do NPE（恢复 get_doc）
       - 内容：`getDoc.do` 对所有 doc 返回 HTTP 500 NPE（日志 `docSysGetDocList() docId:0 []` 查库为空）→ 定位根因并修复，让 `get_doc`/`get_doc_history` 工具恢复可用。
       - 完成判据：真实文档经 get_doc 返回内容（docText 或下载信息），Agent 多步链"列目录→读内容→总结"完整跑通。
@@ -305,14 +305,22 @@
         8. **⚠️ 重载延迟/窗口期教训**：复制 .class 后 context reload 有**延迟窗口**（约数十秒~1分钟），此窗口内请求可能仍用旧类 → 表现"同样的命令间歇失败/成功"。验收必须**等重载完成后**再测（以文件转储日志出现为确认）。最终确认：`/stream` 与 `/execute` 两条路径的多步链（list_repos→list_docs→get_doc→总结）均完整通过；调试日志还暴露模型会把 `</tool_call>` 截断成乱码 → `looksLikeMalformedToolCall` 容错正确触发重试恢复。
         9. **护栏全景更新**：TestToolCallParser 23→**32**（+复数 3 项/混合 1 项/复数畸形 1 项等 9 断言）；全景 = 29+32+36+26+52+9 = **184 全绿**。
       - 当前状态：**已完成（2026-07-31 端到端验收通过）**。
-    - [ ] T8.2 修复 DocSystem 核心 bug：create_doc_share 端点缺失
+    - [ ] T8.2 修复 DocSystem 核心 bug：create_doc_share 端点缺失【⏸ 暂缓——接口调试留待最后手动技能验证】
       - 内容：`createDocShare.do` 端点不存在 → 找到 DocSystem 真实的分享创建端点并接线到 `create_doc_share` 工具（写工具，仍 needsConfirm）。
       - 完成判据：create_doc_share 经确认后真实创建分享成功，分享列表可见。
-      - 当前状态：未开始。★ [UNVALIDATED] 无端到端验证。
+      - 调研结论（2026-07-31）：前端真实分享创建走 `/Bussiness/addDocShare.do`（`WebRoot/web/project.js` `shareDoc()`），但 **Bussiness 是商业模块未部署**（源码/部署类/lib jar 均无 BussinessController）→ 前端分享功能本身也是 404。已按 DocSystem 约定起草 `/Doc/createDocShare.do` 端点（checkAndGetAccessInfo 鉴权 + checkUseAccessRight + generateShareId 唯一随机 + shareAuth JSON + expireTime/shareHours + shareLink=`/DocSystem/web/project.html?vid=&shareId=`），**但用户决策：接口类调试风险高，改动已撤销，验证留到最后手动技能验证阶段**。
+      - 当前状态：⏸ 暂缓（2026-07-31 用户决策，代码已回滚）。★ [UNVALIDATED] 无端到端验证。
     - [ ] T8.3 Memory 工具（跨会话用户偏好）
       - 内容：新增 `memory_set`/`memory_get` 工具，LLM 可读写持久化用户偏好/上下文（复用 agent 会话表或新表），跨会话生效。
       - 完成判据：用户偏好经 LLM 写入后，后续会话 LLM 能读取并据此调整回答；护栏单测。
-      - 当前状态：未开始。★ [UNVALIDATED] 无端到端验证。
+      - 完成记录（2026-07-31 代码完成，待部署验证）：
+        1. **存储层**：新表 `agent_user_memory`（username/mem_key/mem_value/updated_at，UNIQUE(username,mem_key)）——`DatabaseInitializer` 已加 MariaDB + SQLite 两套建表语句。
+        2. **写入用「select→insert/update 两步法」**而非 upsert 语法（MariaDB 与 SQLite 的 upsert 语法不兼容，代码需双方言兼容；当前部署为 SQLite）。
+        3. **新增文件**：`UserMemoryStore`（接口）、`UserMemoryEntity`、`UserMemoryService`（@Service，DB 实现）、`InMemoryUserMemoryStore`（测试用）、`UserMemoryRepository`（MyBatis，放 `com.DocSystem.agent.repository` 扫描包）、`src/mapper/UserMemoryRepositoryMapper.xml`。
+        4. **工具**（DocSysToolFactory）：`memory_set(key,value)`（isWrite=true + **needsConfirm=false**——低风险自我记忆非文档操作，弹确认会打断记忆流程，T8.3 决策）、`memory_get(key)`、`memory_list()`；`createFullRegistry(client, memoryStore, username)` 重载，store=null 时不注册。
+        5. **MainAgent**：注入 `UserMemoryService`（@Autowired(required=false)）并传入 buildToolLoop；username 取 `client.getCurrentUsername()`。
+        6. **护栏**：`TestUserMemoryTools` **21/21**（set/get/覆盖/校验/未登录/get缺失/list/用户隔离/注册表集成）；全景 = 29+32+36+26+52+9+21 = **205 全绿**。编译通过。
+      - 当前状态：代码完成（2026-07-31），⚠️ **待用户手动部署验证**（部署约束：不自动部署）。★ [UNVALIDATED] 无端到端验证。
     - [ ] T8.4 Web Search 工具
       - 内容：新增 `web_search` 只读工具（可配置搜索端点/超时），LLM 可联网检索补充信息。
       - 完成判据：真实搜索返回结果并回灌；护栏单测；失败安全回退。

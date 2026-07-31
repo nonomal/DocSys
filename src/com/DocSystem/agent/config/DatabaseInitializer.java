@@ -33,6 +33,7 @@ public class DatabaseInitializer {
     private static final String[] REQUIRED_TABLES = {
         "agent_sessions",
         "agent_session_messages",
+        "agent_user_memory",
         "agent_tasks",
         "audit_logs",
         "skill_metadata",
@@ -76,6 +77,17 @@ public class DatabaseInitializer {
             + "INDEX idx_session_seq (session_id, seq),"
             + "INDEX idx_created (created_at)"
             + ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Agent session message history (MariaDB 10.1 compatible)'",
+
+        // agent_user_memory
+        "CREATE TABLE IF NOT EXISTS agent_user_memory ("
+            + "id BIGINT PRIMARY KEY AUTO_INCREMENT,"
+            + "username VARCHAR(128) NOT NULL COMMENT '用户名',"
+            + "mem_key VARCHAR(128) NOT NULL COMMENT '记忆键',"
+            + "mem_value LONGTEXT COMMENT '记忆值（偏好/上下文）',"
+            + "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,"
+            + "UNIQUE KEY uk_username_key (username, mem_key),"
+            + "INDEX idx_username (username)"
+            + ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Agent user memory (T8.3)'",
 
         // agent_tasks
         "CREATE TABLE IF NOT EXISTS agent_tasks ("
@@ -328,6 +340,16 @@ public class DatabaseInitializer {
             + "content TEXT,"
             + "seq INT NOT NULL,"
             + "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
+            + ")",
+
+        // agent_user_memory
+        "CREATE TABLE IF NOT EXISTS agent_user_memory ("
+            + "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+            + "username VARCHAR(128) NOT NULL,"
+            + "mem_key VARCHAR(128) NOT NULL,"
+            + "mem_value TEXT,"
+            + "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,"
+            + "UNIQUE (username, mem_key)"
             + ")",
 
         // agent_tasks

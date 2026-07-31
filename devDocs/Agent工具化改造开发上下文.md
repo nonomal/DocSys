@@ -228,6 +228,11 @@ say you are an assistant in DocSys and focus on the user's needs.
 - 前端：只动 `WebRoot/web/agent/index.html`
 - Mapper XML 改动后同步到 `WebRoot/WEB-INF/classes/mapper/`
 
+### ⚠️ 部署约束（2026-07-31 用户明确）
+- **不要直接进行 Tomcat 部署/复制 .class 到 wtpwebapps**（直接部署会导致应用出错）。
+- 只保证**编译通过**（javac 到 `WebRoot/WEB-INF/classes`）；需要部署时**通知用户手动操作**。
+- 测试类可本地 `java` 运行（不涉及部署）。
+
 ---
 
 ## 7. 参考（勿重读大文件，定点查）

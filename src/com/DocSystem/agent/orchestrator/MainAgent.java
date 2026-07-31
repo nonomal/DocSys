@@ -102,6 +102,10 @@ public class MainAgent {
     @Autowired(required = false)
     private com.DocSystem.agent.session.ConversationHistoryService conversationHistoryService;
 
+    /** T8.3 用户记忆存储（memory_set/get/list 工具）；未装配时不注册 memory 工具 */
+    @Autowired(required = false)
+    private com.DocSystem.agent.memory.UserMemoryService userMemoryService;
+
     /** ToolUseLoop 灰度开关（默认开；可配置关闭回退旧 decomposeTask） */
     @org.springframework.beans.factory.annotation.Value("${agent.tool-loop.enabled:true}")
     private boolean toolLoopEnabled;
@@ -569,8 +573,15 @@ public class MainAgent {
             DocSysClient client, AgentContext context, Object sessionInfo,
             com.DocSystem.agent.tool.ConfirmEventSink confirmSink,
             com.DocSystem.agent.llm.ResolvedLlmConfig resolvedLlm, boolean streaming) {
-        com.DocSystem.agent.tool.ToolRegistry registry =
-                com.DocSystem.agent.tool.DocSysToolFactory.createFullRegistry(client);
+        com.DocSystem.agent.tool.ToolRegistry registry;
+        if (userMemoryService != null) {
+            // T8.3：memory 工具绑定用户记忆存储 + 当前用户名（memory_set/get/list）
+            String memoryUsername = client != null ? client.getCurrentUsername() : null;
+            registry = com.DocSystem.agent.tool.DocSysToolFactory.createFullRegistry(
+                    client, userMemoryService, memoryUsername);
+        } else {
+            registry = com.DocSystem.agent.tool.DocSysToolFactory.createFullRegistry(client);
+        }
         // Skill 作为工具暴露（T4.4）：有 SkillExecutorRegistry 时注册 run_skill
         if (skillExecutorRegistry != null) {
             registry.register(com.DocSystem.agent.tool.DocSysToolFactory.runSkillTool(

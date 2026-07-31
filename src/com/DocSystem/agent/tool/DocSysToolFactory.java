@@ -1,6 +1,9 @@
 package com.DocSystem.agent.tool;
 
 import com.DocSystem.agent.client.DocSysClient;
+import com.DocSystem.agent.memory.UserMemoryStore;
+import com.DocSystem.agent.search.WebSearchResult;
+import com.DocSystem.agent.search.WebSearchService;
 import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONObject;
 
@@ -48,6 +51,16 @@ public class DocSysToolFactory {
      * 写工具全部 isWrite=true + needsConfirm=true，执行前经 WriteConfirmGate 批准。
      */
     public static ToolRegistry createFullRegistry(DocSysClient client) {
+        return createFullRegistry(client, null, null);
+    }
+
+    /**
+     * 创建完整注册表（只读 + 写操作工具 + 用户记忆工具）。
+     *
+     * @param memoryStore 用户记忆存储（T8.3）；null → 不注册 memory_* 工具
+     * @param username    当前用户名（memory 工具的用户维度）；可为 null（工具执行时返回未登录错误）
+     */
+    public static ToolRegistry createFullRegistry(DocSysClient client, UserMemoryStore memoryStore, String username) {
         ToolRegistry reg = createReadOnlyRegistry(client);
         // 写操作工具组（T3.2）
         reg.register(createRepos(client));
@@ -62,6 +75,12 @@ public class DocSysToolFactory {
         reg.register(unlockDoc(client));
         reg.register(createDocShare(client));
         reg.register(backupRepos(client));
+        // 用户记忆工具组（T8.3）：存储可用时才注册
+        if (memoryStore != null) {
+            reg.register(memorySet(memoryStore, username));
+            reg.register(memoryGet(memoryStore, username));
+            reg.register(memoryList(memoryStore, username));
+        }
         return reg;
     }
 
@@ -444,6 +463,88 @@ public class DocSysToolFactory {
                         args.getInteger("vid"), args.getString("backupStorePath")))))
                 .parameters(schema)
                 .isWrite(true).needsConfirm(true)
+                .build();
+    }
+
+    // ==================== 用户记忆工具（T8.3） ====================
+
+    /**
+     * M1 写入用户记忆（跨会话偏好/上下文）。
+     *
+     * <p>用户明确表达偏好、身份、常用设定等时使用（如"我喜欢简洁回答""我主要做数据库运维"）。
+     * isWrite=true（写入持久化存储、纳入审计）但 needsConfirm=false（低风险自我记忆，非文档/仓库操作，
+     * 每次弹确认会打断 Agent 记忆流程）。</p>
+     *
+     * @param store    用户记忆存储（不可为 null）
+     * @param username 当前用户名（可为 null → 执行返回未登录错误）
+     */
+    public static ToolDefinition memorySet(UserMemoryStore store, String username) {
+        JSONObject props = props(
+                strProp("key", "记忆键（建议带命名空间，如 user.preferred_language / user.workplace）"),
+                strProp("value", "记忆值（用户偏好/上下文描述，简短明确）"));
+        JSONObject schema = objSchema(props, new String[]{"key", "value"});
+        return ToolDefinition.builder("memory_set", "保存一条跨会话用户记忆（偏好/上下文）。当用户明确表达个人偏好、身份、常用设定时使用",
+                args -> {
+                    String key = args.getString("key");
+                    String value = args.getString("value");
+                    if (username == null || username.isEmpty()) {
+                        return ToolResult.error("当前用户未登录，无法保存记忆");
+                    }
+                    if (key == null || key.trim().isEmpty()) {
+                        return ToolResult.error("key 不能为空");
+                    }
+                    if (value == null || value.trim().isEmpty()) {
+                        return ToolResult.error("value 不能为空");
+                    }
+                    boolean ok = store.set(username, key.trim(), value.trim());
+                    return ok ? ToolResult.ok("已保存记忆 " + key.trim())
+                              : ToolResult.error("保存记忆失败（存储不可用）");
+                })
+                .parameters(schema)
+                .isWrite(true)
+                .build();
+    }
+
+    /** M2 读取用户记忆 */
+    public static ToolDefinition memoryGet(UserMemoryStore store, String username) {
+        JSONObject props = props(strProp("key", "记忆键"));
+        JSONObject schema = objSchema(props, new String[]{"key"});
+        return ToolDefinition.builder("memory_get", "读取一条用户记忆（偏好/上下文）。回答前可先查用户偏好",
+                args -> {
+                    String key = args.getString("key");
+                    if (username == null || username.isEmpty()) {
+                        return ToolResult.error("当前用户未登录，无法读取记忆");
+                    }
+                    if (key == null || key.trim().isEmpty()) {
+                        return ToolResult.error("key 不能为空");
+                    }
+                    String value = store.get(username, key.trim());
+                    if (value == null) {
+                        return ToolResult.ok("该记忆不存在");
+                    }
+                    return ToolResult.ok(key.trim() + " = " + value);
+                })
+                .parameters(schema)
+                .build();
+    }
+
+    /** M3 列出用户全部记忆 */
+    public static ToolDefinition memoryList(UserMemoryStore store, String username) {
+        return ToolDefinition.builder("memory_list", "列出当前用户已保存的全部记忆（偏好/上下文）。不确定有哪些记忆时先调用它",
+                args -> {
+                    if (username == null || username.isEmpty()) {
+                        return ToolResult.error("当前用户未登录，无法读取记忆");
+                    }
+                    Map<String, String> mem = store.list(username);
+                    if (mem == null || mem.isEmpty()) {
+                        return ToolResult.ok("（暂无已保存的记忆）");
+                    }
+                    StringBuilder sb = new StringBuilder();
+                    for (Map.Entry<String, String> e : mem.entrySet()) {
+                        sb.append(e.getKey()).append(" = ").append(e.getValue()).append("\n");
+                    }
+                    return ToolResult.ok(truncate(sb.toString().trim()));
+                })
                 .build();
     }
 

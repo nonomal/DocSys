@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.DocSystem.agent.repository.UserMemoryRepository">
+
+    <resultMap id="UserMemoryEntityResultMap" type="com.DocSystem.agent.memory.UserMemoryEntity">
+        <id property="id" column="id"/>
+        <result property="username" column="username"/>
+        <result property="memKey" column="mem_key"/>
+        <result property="memValue" column="mem_value"/>
+        <result property="updatedAt" column="updated_at"/>
+    </resultMap>
+
+    <insert id="insert">
+        INSERT INTO agent_user_memory (username, mem_key, mem_value)
+        VALUES (#{username}, #{memKey}, #{memValue})
+    </insert>
+
+    <update id="update">
+        UPDATE agent_user_memory
+        SET mem_value = #{memValue}
+        WHERE username = #{username} AND mem_key = #{memKey}
+    </update>
+
+    <select id="selectByUsername" resultMap="UserMemoryEntityResultMap">
+        SELECT * FROM agent_user_memory
+        WHERE username = #{username}
+        ORDER BY mem_key ASC
+    </select>
+
+    <select id="selectByKey" resultMap="UserMemoryEntityResultMap">
+        SELECT * FROM agent_user_memory
+        WHERE username = #{username} AND mem_key = #{memKey}
+        LIMIT 1
+    </select>
+
+    <delete id="deleteByKey">
+        DELETE FROM agent_user_memory
+        WHERE username = #{username} AND mem_key = #{memKey}
+    </delete>
+
+</mapper>
