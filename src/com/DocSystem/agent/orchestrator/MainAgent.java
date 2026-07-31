@@ -106,6 +106,14 @@ public class MainAgent {
     @Autowired(required = false)
     private com.DocSystem.agent.memory.UserMemoryService userMemoryService;
 
+    /** T8.4 web_search 配置：搜索端点（空 → 默认 DuckDuckGo HTML） */
+    @org.springframework.beans.factory.annotation.Value("${agent.web-search.endpoint:}")
+    private String webSearchEndpoint;
+
+    /** T8.4 web_search 配置：超时（毫秒） */
+    @org.springframework.beans.factory.annotation.Value("${agent.web-search.timeout-ms:8000}")
+    private long webSearchTimeoutMs;
+
     /** ToolUseLoop 灰度开关（默认开；可配置关闭回退旧 decomposeTask） */
     @org.springframework.beans.factory.annotation.Value("${agent.tool-loop.enabled:true}")
     private boolean toolLoopEnabled;
@@ -574,13 +582,15 @@ public class MainAgent {
             com.DocSystem.agent.tool.ConfirmEventSink confirmSink,
             com.DocSystem.agent.llm.ResolvedLlmConfig resolvedLlm, boolean streaming) {
         com.DocSystem.agent.tool.ToolRegistry registry;
+        com.DocSystem.agent.search.WebSearchService webSearch = buildWebSearchService();
+        String memoryUsername = client != null ? client.getCurrentUsername() : null;
         if (userMemoryService != null) {
             // T8.3：memory 工具绑定用户记忆存储 + 当前用户名（memory_set/get/list）
-            String memoryUsername = client != null ? client.getCurrentUsername() : null;
             registry = com.DocSystem.agent.tool.DocSysToolFactory.createFullRegistry(
-                    client, userMemoryService, memoryUsername);
+                    client, userMemoryService, memoryUsername, webSearch);
         } else {
-            registry = com.DocSystem.agent.tool.DocSysToolFactory.createFullRegistry(client);
+            registry = com.DocSystem.agent.tool.DocSysToolFactory.createFullRegistry(
+                    client, null, null, webSearch);
         }
         // Skill 作为工具暴露（T4.4）：有 SkillExecutorRegistry 时注册 run_skill
         if (skillExecutorRegistry != null) {
@@ -623,6 +633,22 @@ public class MainAgent {
         }
         return com.DocSystem.agent.orchestrator.ToolUseLoop.forLlmService(
                 llmService, registry, resolvedLlm, isAdmin);
+    }
+
+    /**
+     * 构建 WebSearchService（T8.4）：按配置 endpoint/timeout 构造；endpoint 为空 → 默认 DuckDuckGo。
+     * 构造失败 → null（不注册 web_search 工具，不影响其他工具）。
+     */
+    private com.DocSystem.agent.search.WebSearchService buildWebSearchService() {
+        try {
+            if (webSearchEndpoint != null && !webSearchEndpoint.isEmpty()) {
+                return new com.DocSystem.agent.search.WebSearchService(webSearchEndpoint, webSearchTimeoutMs);
+            }
+            return new com.DocSystem.agent.search.WebSearchService();
+        } catch (Exception e) {
+            log.warn("buildWebSearchService failed, web_search tool disabled: {}", e.getMessage());
+            return null;
+        }
     }
 
     /**

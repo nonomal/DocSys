@@ -51,16 +51,23 @@ public class DocSysToolFactory {
      * 写工具全部 isWrite=true + needsConfirm=true，执行前经 WriteConfirmGate 批准。
      */
     public static ToolRegistry createFullRegistry(DocSysClient client) {
-        return createFullRegistry(client, null, null);
+        return createFullRegistry(client, null, null, null);
+    }
+
+    /** 兼容：无 webSearch（memoryStore 可选） */
+    public static ToolRegistry createFullRegistry(DocSysClient client, UserMemoryStore memoryStore, String username) {
+        return createFullRegistry(client, memoryStore, username, null);
     }
 
     /**
-     * 创建完整注册表（只读 + 写操作工具 + 用户记忆工具）。
+     * 创建完整注册表（只读 + 写操作工具 + 用户记忆工具 + 网络搜索工具）。
      *
      * @param memoryStore 用户记忆存储（T8.3）；null → 不注册 memory_* 工具
      * @param username    当前用户名（memory 工具的用户维度）；可为 null（工具执行时返回未登录错误）
+     * @param webSearch   网络搜索服务（T8.4）；null → 不注册 web_search 工具
      */
-    public static ToolRegistry createFullRegistry(DocSysClient client, UserMemoryStore memoryStore, String username) {
+    public static ToolRegistry createFullRegistry(DocSysClient client, UserMemoryStore memoryStore,
+                                                  String username, WebSearchService webSearch) {
         ToolRegistry reg = createReadOnlyRegistry(client);
         // 写操作工具组（T3.2）
         reg.register(createRepos(client));
@@ -80,6 +87,10 @@ public class DocSysToolFactory {
             reg.register(memorySet(memoryStore, username));
             reg.register(memoryGet(memoryStore, username));
             reg.register(memoryList(memoryStore, username));
+        }
+        // 网络搜索工具（T8.4）：服务可用时才注册
+        if (webSearch != null) {
+            reg.register(webSearch(webSearch));
         }
         return reg;
     }
@@ -545,6 +556,54 @@ public class DocSysToolFactory {
                     }
                     return ToolResult.ok(truncate(sb.toString().trim()));
                 })
+                .build();
+    }
+
+    // ==================== 网络搜索工具（T8.4） ====================
+
+    /**
+     * S1 网络搜索（只读）。
+     *
+     * <p>本地文档库找不到答案时联网检索补充信息。失败安全：网络错误/超时返回清晰错误，
+     * 不抛异常中断工具链。结果上限 10 条（防上下文膨胀）。</p>
+     *
+     * @param searchService 网络搜索服务（不可为 null）
+     */
+    public static ToolDefinition webSearch(WebSearchService searchService) {
+        JSONObject props = props(
+                strProp("query", "搜索关键词"),
+                intProp("maxResults", "返回结果条数（可选，默认5，上限10）"));
+        JSONObject schema = objSchema(props, new String[]{"query"});
+        return ToolDefinition.builder("web_search", "联网搜索网络信息并返回结果列表（标题/链接/摘要）。本地文档库找不到答案或需要最新信息时使用",
+                args -> {
+                    String query = args.getString("query");
+                    if (query == null || query.trim().isEmpty()) {
+                        return ToolResult.error("query 不能为空");
+                    }
+                    Integer maxResults = args.getInteger("maxResults");
+                    WebSearchService.SearchOutcome outcome =
+                            searchService.search(query, maxResults != null ? maxResults : 5);
+                    if (!outcome.isSuccess()) {
+                        return ToolResult.error(outcome.error);
+                    }
+                    if (outcome.results.isEmpty()) {
+                        return ToolResult.ok("未找到相关网络结果。");
+                    }
+                    StringBuilder sb = new StringBuilder();
+                    sb.append("网络搜索结果（").append(outcome.results.size()).append(" 条）：\n");
+                    int idx = 1;
+                    for (WebSearchResult r : outcome.results) {
+                        sb.append(idx++).append(". ").append(r.title).append("\n");
+                        if (r.url != null && !r.url.isEmpty()) {
+                            sb.append("   链接: ").append(r.url).append("\n");
+                        }
+                        if (r.snippet != null && !r.snippet.isEmpty()) {
+                            sb.append("   摘要: ").append(r.snippet).append("\n");
+                        }
+                    }
+                    return ToolResult.ok(truncate(sb.toString().trim()));
+                })
+                .parameters(schema)
                 .build();
     }
 

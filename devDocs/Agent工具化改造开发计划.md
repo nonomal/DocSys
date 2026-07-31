@@ -324,7 +324,14 @@
     - [ ] T8.4 Web Search 工具
       - 内容：新增 `web_search` 只读工具（可配置搜索端点/超时），LLM 可联网检索补充信息。
       - 完成判据：真实搜索返回结果并回灌；护栏单测；失败安全回退。
-      - 当前状态：未开始。★ [UNVALIDATED] 无端到端验证。
+      - 完成记录（2026-07-31 代码完成，待部署验证）：
+        1. **新增** `search/WebSearchResult`（title/url/snippet）+ `search/WebSearchService`：可配置端点/超时，OkHttp 请求。
+        2. **双格式解析**：默认 DuckDuckGo HTML（`result__a`/`result__snippet`，含 `//duckduckgo.com/l/?uddg=` 重定向解码还原真实 URL）；若端点返回 JSON（`[`/`{` 开头）则按通用字段（title/url|link/snippet|description|content 及 data/results/items/organic 包装）解析。
+        3. **失败安全**：HTTP 非 2xx / 连接拒绝 / 超时 / 解析失败 → 返回清晰错误（`HTTP 500`/`搜索超时(8000ms)`/`搜索失败: ...`），不抛异常中断工具链。
+        4. **工具** `web_search(query, maxResults?)`：只读（isWrite=false, needsConfirm=false）；结果上限 10 条防上下文膨胀；`createFullRegistry(client, memoryStore, username, webSearch)` 四参重载，svc=null 不注册。
+        5. **MainAgent 配置**：`agent.web-search.endpoint`（空 → 默认 DuckDuckGo HTML）+ `agent.web-search.timeout-ms`（默认 8000），`-D` 系统属性可覆盖；构造失败 → null 不注册（不影响其他工具）。
+        6. **护栏**：`TestWebSearchTool` **23/23**（HTML 解析/JSON 解析/JSON 包装/HTTP500 回退/连接拒绝回退/空结果/工具集成/maxResults 上限）；全景 = 29+32+36+26+52+9+21+23 = **228 全绿**。编译通过。
+      - 当前状态：代码完成（2026-07-31），⚠️ **待用户手动部署验证**（部署约束：不自动部署）。★ [UNVALIDATED] 无端到端验证。
     - [ ] T8.5 Step 审计（工具链每步）
       - 内容：ToolUseLoop 每轮/每工具调用产出结构化审计（turn/tool/args 摘要/result 摘要/耗时），对接 AuditLogService 或独立表。
       - 完成判据：一次工具链请求的每步审计可查询；护栏断言。
