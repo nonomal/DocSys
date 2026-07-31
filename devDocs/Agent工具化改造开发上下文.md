@@ -191,6 +191,13 @@ say you are an assistant in DocSys and focus on the user's needs.
 - ⚠️ 编译通过（JDK 1.8，6 个 .java 更新 + StreamChunk 新增）；`runToolLoopWithSse`（旧非流式）已成死代码保留（无引用）；无新 Mapper/DDL。
 - ⚠️ 待做：T7.4 部署验收（docsys_start.bat 重启 + 真实 LLM 三类场景 + 首 token 延迟对照）。
 
+### 5.11 T5.3 复杂任务多步编排验证（2026-07-31 完成）
+- 真实 LLM 验证通过：流式 `list_repos→search_docs→list_docs` 自主串联 + 非流式 6 工具/9 轮，产物正确。
+- **工具 bug 修复**（DocSysClient）：`getDocList` 端点改 `/Repos/getSubDocList.do`（子文件夹必须传 path/docId，pid 被忽略）；`searchDocs` 参数 `vid`→`reposId`（原全局搜索超时）；`getDoc`/`getDocHistory` 参数 `vid`→`reposId`；`getDocShareList` 无参数。规律：**Repos 端点用 vid，Doc 端点用 reposId**。
+- **模型输出容错**（ToolCallParser/ToolPromptBuilder）：支持 Anthropic XML 格式回退；含 `<tool_call` 标记但无法解析→按畸形重试；提示词禁止 `<invoke>/<parameter>`。
+- ⚠️ **DocSystem 核心 bug**（非 Agent）：`getDoc.do` 全 500 NPE（docSysGetDoc 查库空）；`createDocShare.do` 端点不存在。已记录待修。
+- 护栏：TestToolCallParser 16→23（+7）；**护栏全景 = 29+23+36+26+52+9 = 175 全绿**。
+
 ### 5.5 已验证的事实（改造依据）
 - 意图识别**不只支持 chat**：多层管道（复合命令 → LLM NLU → Skill trigger → regex → chat 兜底），支持 list_repos/list_docs/search/generate_summary/search_and_answer/whoami/help/web_search 等 10+ 类。
 - LLM 当前只当分类器 + 兜底对话用，**无工具选择权、无多步推理、无失败重试**（用户确认这是要升级的缺陷）。

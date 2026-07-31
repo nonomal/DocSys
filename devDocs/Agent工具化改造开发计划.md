@@ -180,10 +180,26 @@
           - 前端 index.html：API 方法（listSessions/createSession/getSessionMessages/deleteSession）、`loadSessionsFromServer()`（enterApp 时加载）、newSessionBtn 走服务端创建、会话点击加载历史、无会话时发送自动创建、完成刷新列表、删除按钮 + 标题 CSS
         - **T5.2b 跨请求上下文延续**：`ToolUseLoop.run(userQuery, priorHistory)` 支持历史注入（system + history + user）；`MainAgent.runToolUseLoop(..., historySessionId)` 从库加载最近 20 条 user/assistant 消息作为 LLM 上下文（`loadSessionHistory`）；SSE 路径传入会话 sessionId。
       - 护栏：`TestToolUseLoop.testHistoryInjection`（历史注入到 messages、system 在前、user 查询在最后）。
-    - [ ] T5.3 复杂任务多步编排
+    - [x] T5.3 复杂任务多步编排
       - 内容：对"先搜文档→提取内容→生成摘要→保存"类多步任务，验证 ToolUseLoop 能自主串联（而非预设子任务）。
       - 完成判据：端到端真实执行成功且产物正确。
-      - 当前状态：未开始。★ [UNVALIDATED] 无端到端验证（待真实 LLM 验证）。
+      - 当前状态：**已完成（2026-07-31 真实 LLM 验证通过）**。护栏 +7（TestToolCallParser 16→23）。
+      - 验证记录（DeepSeek + 真实 DocSys 会话）：
+        - ✅ 流式路径：`list_repos → search_docs(vid,searchWord) → list_docs` 自主串联成功，产物为完整 markdown 报告（仓库表 + office 搜索文档列表）。
+        - ✅ 非流式 /execute：同一任务 6 工具 / 9 轮 / 33s，产物正确（metadata toolLoop: turns=9, toolCalls=6）。
+        - ✅ 多步时参数正确传承（vid=8 从 list_repos 结果带入 search_docs/list_docs；子文件夹用 path/docId）。
+      - 🔧 验证中修复的工具 bug（DocSysClient + Tool 层）：
+        - `getDocList` 端点全错（/Doc/getDocList.do 等 404）→ 改 `/Repos/getSubDocList.do`；**子文件夹必须传 path 或 docId（pid 被服务端忽略）** → list_docs schema 改 docId/path + 描述引导。
+        - `searchDocs` 参数名 `vid` → **`reposId`**（原传错 → 被当全局搜索 → 60s 超时）。
+        - `getDoc`/`getDocHistory` 参数名 `vid` → `reposId`；`getDocShareList` 端点无参数。
+        - 规律：Repos 类端点用 `vid`，Doc 类端点用 `reposId`。
+      - 🔧 模型输出容错（ToolCallParser + ToolPromptBuilder）：
+        - 支持 Anthropic/Claude XML 格式（`<invoke name><parameter>`）作为 JSON 失败回退。
+        - 输出含 `<tool_call` 标记但无法解析（关闭标签写错/截断）→ 按畸形重试而非当最终回答。
+        - 提示词明确禁止 `<invoke>/<parameter>`，只允许 JSON 格式。
+      - ⚠️ 发现的 DocSystem 核心 bug（非 Agent 问题，已记录待修）：
+        - `getDoc.do` 对所有 doc 返回 HTTP 500 NPE（日志 `docSysGetDocList() docId:0 []` 查库为空）→ 当前 `get_doc`/`get_doc_history` 工具不可用。
+        - `createDocShare.do` 端点不存在 → `create_doc_share` 工具目标缺失（写工具，需确认真实分享创建端点后修复）。
     - [ ] T5.4 工具调用序列固化 Skill
       - 内容：把用户认可的重复工具序列（如"新建仓库+上传文档+分享"）固化为 Skill（复用 SkillCrystallizer / ExperienceMemory）。
       - 完成判据：重复请求可命中已固化 Skill 一键执行。
@@ -239,6 +255,7 @@
         - 内容：替代 5 字符假打字——按 `text` 事件逐 token 追加（后端已真流式）；`reasoning` 与 `text` 分开展示。
         - 完成判据：LLM 生成过程中文字实时出现（首 token 延迟可感知）。
         - 完成记录：`executeWithGeneration` 新增 `text`/`chunk` 事件 → 追加 liveText（实时渲染）；`done` 落 content；reasoning 独立累积灰色展示。
+        - ⚠️ 后续修复（2026-07-31）：原实现每个流式分片都调 `renderMessages()` 重建全部消息 → 用户反馈"疯狂刷新"。改为**增量 DOM 更新**：`scheduleStreamingUpdate`（requestAnimationFrame 节流到 ~60fps）→ `updateStreamingMessage` 只更新当前消息节点；生成中正文用轻量 `renderStreamingText`（纯文本转义，不重跑 markdown/mermaid），`done` 才一次性智能渲染；body 节点保持稳定（innerHTML 而非 outerHTML）。MutationObserver 实测：流式过程中 messagesList 容器 0 次整体重建（仅开始/结束各 2 次全量渲染）。
       - [x] T7.2.2 工具进度卡片
         - 内容：`tool_call` 事件 → 显示工具名/参数卡片（"调用中"）；`tool_result` → 结果摘要/失败红字；多工具按顺序排列。
         - 完成判据：工具链场景下每步工具调用/结果可见。

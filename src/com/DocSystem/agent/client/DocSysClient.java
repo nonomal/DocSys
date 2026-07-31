@@ -353,22 +353,21 @@ public class DocSysClient {
 
     /**
      * Get document list
-     * POST /Doc/getDocList.do
-     * Params: vid (reposId), pid (parent folder id), path
-     * Fallback to try multiple possible endpoints
+     * POST /Repos/getSubDocList.do
+     * Params: vid (reposId), docId (子文件夹的 docId), pid, path (子文件夹相对路径), name
+     * 说明（T5.3 修复）：path 为空时服务端【总是返回根目录】（pid 会被忽略）；
+     * 要查看子文件夹必须传 path（相对路径，如 "DocSys" 或 "DocSys/sub"）或 docId。
      */
-    public Map<String, Object> getDocList(Integer vid, Long pid, String path) throws Exception {
-        // Try multiple possible endpoints
+    public Map<String, Object> getDocList(Integer vid, Long docId, Long pid, String path) throws Exception {
         String[] endpoints = {
-            "/Doc/getDocList.do",
-            "/Repos/getDocList.do",
-            "/Doc/list.do"
+            "/Repos/getSubDocList.do"
         };
 
         Map<String, String> params = new HashMap<>();
         if (vid != null) params.put("vid", vid.toString());
+        if (docId != null) params.put("docId", docId.toString());
         if (pid != null) params.put("pid", pid.toString());
-        if (path != null) params.put("path", path);
+        if (path != null && !path.isEmpty()) params.put("path", path);
 
         for (String endpoint : endpoints) {
             try {
@@ -376,8 +375,8 @@ public class DocSysClient {
                 Response response = postForm(url, params, sessionCookie);
                 try {
                     String body = responseBodyString(response);
-                    // Check if we got a valid JSON response (not 404)
-                    if (!body.contains("<!doctype html>") && !body.contains("404")) {
+                    // Check if we got a valid JSON response (not 404 / html)
+                    if (response.code() == 200 && !body.contains("<!doctype html>") && !body.contains("404")) {
                         return JSON.parseObject(body);
                     }
                 } finally {
@@ -557,7 +556,8 @@ public class DocSysClient {
     public Map<String, Object> getDoc(Integer reposId, Long docId, String path, String name) throws Exception {
         String url = baseUrl + "/Doc/getDoc.do";
         Map<String, String> params = new HashMap<>();
-        if (reposId != null) params.put("vid", reposId.toString());
+        // T5.3 修复：DocSystem /Doc/getDoc.do 的参数名是 reposId（不是 vid）
+        if (reposId != null) params.put("reposId", reposId.toString());
         if (docId != null) params.put("docId", docId.toString());
         if (path != null) params.put("path", path);
         if (name != null) params.put("name", name);
@@ -597,7 +597,8 @@ public class DocSysClient {
     public Map<String, Object> getDocHistory(Integer reposId, Long docId) throws Exception {
         String url = baseUrl + "/Doc/getDocHistory.do";
         Map<String, String> params = new HashMap<>();
-        if (reposId != null) params.put("vid", reposId.toString());
+        // T5.3 修复：DocSystem /Doc/getDocHistory.do 的参数名是 reposId（不是 vid）
+        if (reposId != null) params.put("reposId", reposId.toString());
         if (docId != null) params.put("docId", docId.toString());
 
         Response response = postForm(url, params, sessionCookie);
@@ -621,7 +622,9 @@ public class DocSysClient {
         Map<String, String> params = new LinkedHashMap<>();
         // DocSys requires searchWord as first param, and empty string returns nothing — use "." as wildcard
         params.put("searchWord", (searchWord == null || searchWord.isEmpty()) ? "." : searchWord);
-        if (vid != null) params.put("vid", vid.toString());
+        // T5.3 修复：DocSystem searchDoc.do 的参数名是 reposId（不是 vid）；
+        // 传错参数会被当作全局搜索（reposId=null）→ 全库检索极慢/超时
+        if (vid != null) params.put("reposId", vid.toString());
 
         // Build FormBody with guaranteed param order (searchWord must be first)
         FormBody.Builder fb = new FormBody.Builder();
@@ -902,16 +905,11 @@ public class DocSysClient {
     /**
      * Get document share info
      * POST /Doc/getDocShareList.do
+     * T5.3 修复：该端点无参数（返回当前用户全部分享列表），原传参无效
      */
     public Map<String, Object> getDocShareList(Integer reposId, Long docId, String path, String name) throws Exception {
         String url = baseUrl + "/Doc/getDocShareList.do";
-        Map<String, String> params = new HashMap<>();
-        if (reposId != null) params.put("vid", reposId.toString());
-        if (docId != null) params.put("docId", docId.toString());
-        if (path != null) params.put("path", path);
-        if (name != null) params.put("name", name);
-
-        Response response = postForm(url, params, sessionCookie);
+        Response response = postForm(url, new HashMap<String, String>(), sessionCookie);
         try {
             return JSON.parseObject(responseBodyString(response));
         } finally {

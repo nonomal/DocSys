@@ -95,12 +95,15 @@ public class DocSysToolFactory {
     public static ToolDefinition listDocs(DocSysClient client) {
         JSONObject props = props(
                 intProp("vid", "仓库ID（必填）"),
-                longProp("pid", "父目录ID（可选，0为根）"),
-                strProp("path", "路径（可选）"));
+                longProp("docId", "子文件夹的 docId（可选，来自 list_docs 结果的 data[].docId）"),
+                strProp("path", "子文件夹相对路径（可选，如 \"DocSys\" 或 \"DocSys/sub\"）"));
         JSONObject schema = objSchema(props, new String[]{"vid"});
-        return ToolDefinition.builder("list_docs", "列出指定仓库的文档列表",
+        return ToolDefinition.builder("list_docs",
+                "列出指定仓库的文档列表。不传 docId/path 时返回仓库根目录内容；"
+                + "要查看某个子文件夹，请传该文件夹的 docId（推荐，来自上次 list_docs 结果的 data[].docId）"
+                + "或相对路径 path（如 \"DocSys\"）。",
                 args -> ToolResult.ok(fmt(client.getDocList(args.getInteger("vid"),
-                        args.getLong("pid"), args.getString("path")))))
+                        args.getLong("docId"), null, args.getString("path")))))
                 .parameters(schema)
                 .build();
     }

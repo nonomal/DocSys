@@ -29,6 +29,10 @@ public class TestToolCallParser {
         testMissingArguments();
         testArgumentsAsString();
         testContainsToolCall();
+        testAnthropicXmlFormat();
+        testAnthropicXmlWithParametersJson();
+        testAnthropicXmlInvalid();
+        testMalformedClosingTag();
         System.out.println("\n======== TestToolCallParser: " + pass + " passed, " + fail + " failed ========");
         if (fail > 0) {
             System.exit(1);
@@ -104,5 +108,39 @@ public class TestToolCallParser {
     private static void testContainsToolCall() {
         check("containsToolCall true", ToolCallParser.containsToolCall("<tool_call>{}</tool_call>"));
         check("containsToolCall false", !ToolCallParser.containsToolCall("no marker here"));
+    }
+
+    /** T5.3 容错：模型偶发输出 Anthropic/Claude XML 格式 */
+    private static void testAnthropicXmlFormat() {
+        String out = "<tool_call>\n<invoke name=\"list_docs\">\n<parameter name=\"vid\">8</parameter>\n</invoke>\n</tool_call>";
+        List<ToolCall> calls = ToolCallParser.parse(out);
+        check("anthropic xml: parsed", calls != null && calls.size() == 1);
+        if (calls != null && !calls.isEmpty()) {
+            check("anthropic xml: name=list_docs", "list_docs".equals(calls.get(0).name));
+            check("anthropic xml: vid=8 (number)", calls.get(0).arguments.getInteger("vid") == 8);
+        }
+    }
+
+    private static void testAnthropicXmlWithParametersJson() {
+        String out = "<tool_call><invoke name=\"get_repos\"><parameters>{\"vid\":3}</parameters></invoke></tool_call>";
+        List<ToolCall> calls = ToolCallParser.parse(out);
+        check("anthropic xml+parameters json: parsed", calls != null && calls.size() == 1
+                && calls.get(0).arguments.getInteger("vid") == 3);
+    }
+
+    private static void testAnthropicXmlInvalid() {
+        String out = "<tool_call><invoke name=\"\"></invoke></tool_call>";
+        List<ToolCall> calls = ToolCallParser.parse(out);
+        check("anthropic xml empty name -> null", calls == null);
+    }
+
+    /** 关闭标签写错（如 </ce_tool_call>）→ 按畸形处理（null 重试），而非当最终回答 */
+    private static void testMalformedClosingTag() {
+        String out = "先查看一下。<tool_call>{\"name\":\"list_docs\",\"arguments\":{\"vid\":8}}</ce_tool_call>";
+        List<ToolCall> calls = ToolCallParser.parse(out);
+        check("malformed closing tag -> null (retry)", calls == null);
+        // 输出含 <tool_call 标记但无法解析 → 按畸形处理（重试），避免把残缺调用当最终回答
+        check("stray <tool_call marker -> null (retry)",
+                ToolCallParser.parse("请使用 <tool_call 格式调用工具") == null);
     }
 }
