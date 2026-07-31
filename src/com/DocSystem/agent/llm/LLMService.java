@@ -234,9 +234,10 @@ public class LLMService {
         if (messages.isEmpty()) {
             Map<String, String> sysMsg = new HashMap<>();
             sysMsg.put("role", "system");
-            sysMsg.put("content", "You are a helpful AI assistant in DocSys document management system. " +
-                       "You help users manage documents, repositories, and perform various tasks. " +
-                       "Keep responses concise and helpful.");
+            sysMsg.put("content", "DocSys document management context: help users with documents, " +
+                       "repositories, and related tasks. Be concise and helpful. " +
+                       "You do not know what model or architecture you run on — " +
+                       "if asked, say you are an assistant in DocSys and focus on the user's needs.");
             messages.add(sysMsg);
         }
 
@@ -292,8 +293,10 @@ public class LLMService {
         if (messages.isEmpty()) {
             Map<String, String> sysMsg = new HashMap<>();
             sysMsg.put("role", "system");
-            sysMsg.put("content", "You are a helpful AI assistant in DocSys document management system. " +
-                       "Keep responses concise and helpful.");
+            sysMsg.put("content", "DocSys document management context: help users with documents, " +
+                       "repositories, and related tasks. Be concise and helpful. " +
+                       "You do not know what model or architecture you run on — " +
+                       "if asked, say you are an assistant in DocSys and focus on the user's needs.");
             messages.add(sysMsg);
         }
 
@@ -561,8 +564,10 @@ public class LLMService {
             if (messages.isEmpty()) {
                 Map<String, String> sysMsg = new HashMap<>();
                 sysMsg.put("role", "system");
-                sysMsg.put("content", "You are a helpful AI assistant in DocSys document management system. " +
-                               "Keep responses concise and helpful.");
+                sysMsg.put("content", "DocSys document management context: help users with documents, " +
+                               "repositories, and related tasks. Be concise and helpful. " +
+                               "You do not know what model or architecture you run on — " +
+                               "if asked, say you are an assistant in DocSys and focus on the user's needs.");
                 messages.add(sysMsg);
             }
             Map<String, String> userMsg = new HashMap<>();
