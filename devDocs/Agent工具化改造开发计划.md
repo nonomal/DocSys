@@ -313,25 +313,33 @@
     - [ ] T8.3 Memory 工具（跨会话用户偏好）
       - 内容：新增 `memory_set`/`memory_get` 工具，LLM 可读写持久化用户偏好/上下文（复用 agent 会话表或新表），跨会话生效。
       - 完成判据：用户偏好经 LLM 写入后，后续会话 LLM 能读取并据此调整回答；护栏单测。
-      - 完成记录（2026-07-31 代码完成，待部署验证）：
+      - 完成记录（2026-07-31 代码完成；2026-08-01 端到端验证通过）：
         1. **存储层**：新表 `agent_user_memory`（username/mem_key/mem_value/updated_at，UNIQUE(username,mem_key)）——`DatabaseInitializer` 已加 MariaDB + SQLite 两套建表语句。
-        2. **写入用「select→insert/update 两步法」**而非 upsert 语法（MariaDB 与 SQLite 的 upsert 语法不兼容，代码需双方言兼容；当前部署为 SQLite）。
-        3. **新增文件**：`UserMemoryStore`（接口）、`UserMemoryEntity`、`UserMemoryService`（@Service，DB 实现）、`InMemoryUserMemoryStore`（测试用）、`UserMemoryRepository`（MyBatis，放 `com.DocSystem.agent.repository` 扫描包）、`src/mapper/UserMemoryRepositoryMapper.xml`。
-        4. **工具**（DocSysToolFactory）：`memory_set(key,value)`（isWrite=true + **needsConfirm=false**——低风险自我记忆非文档操作，弹确认会打断记忆流程，T8.3 决策）、`memory_get(key)`、`memory_list()`；`createFullRegistry(client, memoryStore, username)` 重载，store=null 时不注册。
-        5. **MainAgent**：注入 `UserMemoryService`（@Autowired(required=false)）并传入 buildToolLoop；username 取 `client.getCurrentUsername()`。
-        6. **护栏**：`TestUserMemoryTools` **21/21**（set/get/覆盖/校验/未登录/get缺失/list/用户隔离/注册表集成）；全景 = 29+32+36+26+52+9+21 = **205 全绿**。编译通过。
-      - 当前状态：代码完成（2026-07-31），⚠️ **待用户手动部署验证**（部署约束：不自动部署）。★ [UNVALIDATED] 无端到端验证。
+        2. **写入用「select→insert/update 两步法」**而非 upsert 语法（MariaDB 与 SQLite 的 upsert 语法不兼容；当前部署为 SQLite）。
+        3. **新增文件**：`UserMemoryStore`（接口）、`UserMemoryEntity`、`UserMemoryService`（@Service，DB 实现）、`InMemoryUserMemoryStore`（测试用）、`UserMemoryRepository`（MyBatis）、`src/mapper/UserMemoryRepositoryMapper.xml`。
+        4. **工具**（DocSysToolFactory）：`memory_set(key,value)`（isWrite=true + needsConfirm=false）、`memory_get(key)`、`memory_list()`；createFullRegistry 四参重载。
+        5. **MainAgent**：注入 `UserMemoryService` 传入 buildToolLoop；username 取 `extractUserId(sessionInfo)`（修复：不能用 client.getCurrentUsername()——getSessionClient 只设 cookie 不设 username）。
+        6. **端到端验证发现并修复 4 个问题**：
+           - ① username 为 null → 改 extractUserId（已见上）；
+           - ② MyBatis 3.1.1 无 LocalDateTime TypeHandler → `UserMemoryEntity.updatedAt` 改 `java.util.Date`（否则 selectByKey 读已有记录抛异常，表现为更新失败）；
+           - ③ SQLite 单写者 + c3p0 连接池 → selectByKey(读连接持锁)+update(写连接) 跨连接 `database is locked` → `set()` 加 `@Transactional` 收敛单连接；
+           - ④ c3p0+@Transactional+SQLite 下 MyBatis insert/update 返回 0 但数据实际写入 → 成功判定改为「不抛异常即成功」（selectByKey 预检保证匹配）。
+        7. **端到端验证通过（2026-08-01）**：memory_set 写入 success:true（工具返回"已保存记忆 每日早间习惯 = ..."）；memory_list/get 读回全部偏好；模型能识别测试遗留数据（probe.key 等）并主动提示清理。
+        8. **护栏**：`TestUserMemoryTools` 21→**26/26**（+content/value 容错自动映射 5 项）；全景 = 29+32+36+26+52+9+26+30 = **240 全绿**。
+      - 当前状态：**已完成（2026-08-01 端到端验证通过）**。
     - [ ] T8.4 Web Search 工具
       - 内容：新增 `web_search` 只读工具（可配置搜索端点/超时），LLM 可联网检索补充信息。
       - 完成判据：真实搜索返回结果并回灌；护栏单测；失败安全回退。
-      - 完成记录（2026-07-31 代码完成，待部署验证）：
-        1. **新增** `search/WebSearchResult`（title/url/snippet）+ `search/WebSearchService`：可配置端点/超时，OkHttp 请求。
-        2. **双格式解析**：默认 DuckDuckGo HTML（`result__a`/`result__snippet`，含 `//duckduckgo.com/l/?uddg=` 重定向解码还原真实 URL）；若端点返回 JSON（`[`/`{` 开头）则按通用字段（title/url|link/snippet|description|content 及 data/results/items/organic 包装）解析。
-        3. **失败安全**：HTTP 非 2xx / 连接拒绝 / 超时 / 解析失败 → 返回清晰错误（`HTTP 500`/`搜索超时(8000ms)`/`搜索失败: ...`），不抛异常中断工具链。
-        4. **工具** `web_search(query, maxResults?)`：只读（isWrite=false, needsConfirm=false）；结果上限 10 条防上下文膨胀；`createFullRegistry(client, memoryStore, username, webSearch)` 四参重载，svc=null 不注册。
-        5. **MainAgent 配置**：`agent.web-search.endpoint`（空 → 默认 DuckDuckGo HTML）+ `agent.web-search.timeout-ms`（默认 8000），`-D` 系统属性可覆盖；构造失败 → null 不注册（不影响其他工具）。
-        6. **护栏**：`TestWebSearchTool` **23/23**（HTML 解析/JSON 解析/JSON 包装/HTTP500 回退/连接拒绝回退/空结果/工具集成/maxResults 上限）；全景 = 29+32+36+26+52+9+21+23 = **228 全绿**。编译通过。
-      - 当前状态：代码完成（2026-07-31），⚠️ **待用户手动部署验证**（部署约束：不自动部署）。★ [UNVALIDATED] 无端到端验证。
+      - 完成记录（2026-07-31 代码完成；2026-08-01 链路验证通过）：
+        1. **新增** `search/WebSearchResult` + `search/WebSearchService`：可配置端点/超时，OkHttp 请求。
+        2. **默认端点改 Bing**（实测 DuckDuckGo 被墙超时、Bing 可达）：解析 `li.b_algo` 的 `h2 a`（标题/链接）+ `p`（摘要），还原 `//bing.com/ck/a?u=` Base64URL 重定向为真实 URL；保留 DuckDuckGo HTML 与 JSON（title/url|link/snippet|description|content 及 data/results/items/organic 包装）双格式解析。
+        3. **失败安全**：HTTP 非 2xx / 连接拒绝 / 超时 / 解析失败 → 清晰错误，不抛异常中断工具链。
+        4. **工具** `web_search(query, maxResults?)`：只读；结果上限 10；createFullRegistry 四参重载，svc=null 不注册。
+        5. **MainAgent 配置**：`agent.web-search.endpoint`（空 → 默认 Bing）+ `agent.web-search.timeout-ms`（默认 8000），`-D` 可覆盖。
+        6. **验证发现并修复**：OkHttp 无 charset 时中文乱码（显式 `new String(body.bytes(),"UTF-8")`）；搜索相关性 = Bing 返回质量（"apache kafka" 返回 Apache HTTP Server 是 Bing 自身行为，非工具 bug）。
+        7. **链路验证通过（2026-08-01）**：web_search 被模型正确调用、真实请求 Bing、解析回灌、模型判断相关性、不相关时回退知识回答。
+        8. **护栏**：`TestWebSearchTool` 23→**30/30**（+Bing 解析/Base64URL 解码/默认端点断言 7 项）；全景 = **240 全绿**。
+      - 当前状态：**已完成（2026-08-01 链路验证通过）**。
     - [ ] T8.5 Step 审计（工具链每步）
       - 内容：ToolUseLoop 每轮/每工具调用产出结构化审计（turn/tool/args 摘要/result 摘要/耗时），对接 AuditLogService 或独立表。
       - 完成判据：一次工具链请求的每步审计可查询；护栏断言。

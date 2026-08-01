@@ -1,9 +1,12 @@
 package com.DocSystem.agent.memory;
 
-import java.time.LocalDateTime;
+import java.util.Date;
 
 /**
  * 用户记忆实体 —— 映射 agent_user_memory 表（T8.3）。
+ *
+ * <p>updatedAt 用 {@link Date} 而非 LocalDateTime：项目 MyBatis 为 3.1.1，
+ * 无 JSR-310 TypeHandler（LocalDateTime 读取会抛异常导致 selectByKey 失败）。</p>
  */
 public class UserMemoryEntity {
 
@@ -14,7 +17,7 @@ public class UserMemoryEntity {
     private String memKey;
     /** 记忆值（偏好/上下文文本） */
     private String memValue;
-    private LocalDateTime updatedAt;
+    private Date updatedAt;
 
     public UserMemoryEntity() {}
 
@@ -22,7 +25,7 @@ public class UserMemoryEntity {
         this.username = username;
         this.memKey = memKey;
         this.memValue = memValue;
-        this.updatedAt = LocalDateTime.now();
+        this.updatedAt = new Date();
     }
 
     public Long getId() { return id; }
@@ -37,6 +40,6 @@ public class UserMemoryEntity {
     public String getMemValue() { return memValue; }
     public void setMemValue(String memValue) { this.memValue = memValue; }
 
-    public LocalDateTime getUpdatedAt() { return updatedAt; }
-    public void setUpdatedAt(LocalDateTime updatedAt) { this.updatedAt = updatedAt; }
+    public Date getUpdatedAt() { return updatedAt; }
+    public void setUpdatedAt(Date updatedAt) { this.updatedAt = updatedAt; }
 }

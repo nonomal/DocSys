@@ -30,6 +30,7 @@ public class TestUserMemoryTools {
         testGetMissing();
         testListEmptyAndFull();
         testUserIsolation();
+        testContentFallback();
         testRegistryIntegration();
         System.out.println("\n======== TestUserMemoryTools: " + pass + " passed, " + fail + " failed ========");
         if (fail > 0) {
@@ -83,13 +84,39 @@ public class TestUserMemoryTools {
         InMemoryUserMemoryStore store = new InMemoryUserMemoryStore();
         ToolDefinition set = DocSysToolFactory.memorySet(store, "alice");
 
-        JSONObject noKey = new JSONObject();
-        noKey.put("value", "v");
-        check("set empty key -> error", !run(set, noKey).success);
-
+        // 完全空参数 → error
+        check("set no args -> error", !run(set, new JSONObject()).success);
+        // key 空且无 value/content → error
+        JSONObject bad = new JSONObject();
+        bad.put("key", "  ");
+        check("set empty key & no value -> error", !run(set, bad).success);
+        // 有 key 无 value → error
         JSONObject noValue = new JSONObject();
         noValue.put("key", "k");
         check("set empty value -> error", !run(set, noValue).success);
+    }
+
+    /** T8.3.1 容错：模型偶发用 content 传内容 / 缺 key → 自动映射 user.preference */
+    private static void testContentFallback() throws Exception {
+        InMemoryUserMemoryStore store = new InMemoryUserMemoryStore();
+        ToolDefinition set = DocSysToolFactory.memorySet(store, "alice");
+        ToolDefinition get = DocSysToolFactory.memoryGet(store, "alice");
+
+        // 场景 1：只传 content（模型真实出现的偏差）→ 自动映射 key=user.preference 保存成功
+        JSONObject onlyContent = new JSONObject();
+        onlyContent.put("content", "用户偏好：喜欢简洁的中文回答");
+        ToolResult r1 = run(set, onlyContent);
+        check("content-only -> success with auto key", r1.success && r1.summary.contains("user.preference"));
+        ToolResult g1 = run(get, args("user.preference", null));
+        check("content-only -> value readable", g1.success && g1.summary.contains("喜欢简洁"));
+
+        // 场景 2：有 value 无 key → 自动映射 key=user.preference（覆盖）
+        JSONObject valueOnly = new JSONObject();
+        valueOnly.put("value", "主要做数据库运维");
+        ToolResult r2 = run(set, valueOnly);
+        check("value-only -> success with auto key", r2.success && r2.summary.contains("user.preference"));
+        ToolResult g2 = run(get, args("user.preference", null));
+        check("value-only -> overwrote value", g2.success && g2.summary.contains("数据库运维"));
     }
 
     private static void testNotLoggedIn() throws Exception {

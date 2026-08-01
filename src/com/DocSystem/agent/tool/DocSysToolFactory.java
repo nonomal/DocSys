@@ -491,24 +491,39 @@ public class DocSysToolFactory {
      */
     public static ToolDefinition memorySet(UserMemoryStore store, String username) {
         JSONObject props = props(
-                strProp("key", "记忆键（建议带命名空间，如 user.preferred_language / user.workplace）"),
-                strProp("value", "记忆值（用户偏好/上下文描述，简短明确）"));
+                strProp("key", "记忆键（必填）。建议带命名空间，如 user.preference / user.preferred_language / user.workplace。示例：\"key\":\"user.preference\""),
+                strProp("value", "记忆值（必填）。用户偏好/上下文的实际内容。示例：\"value\":\"喜欢简洁的中文回答\""));
         JSONObject schema = objSchema(props, new String[]{"key", "value"});
-        return ToolDefinition.builder("memory_set", "保存一条跨会话用户记忆（偏好/上下文）。当用户明确表达个人偏好、身份、常用设定时使用",
+        return ToolDefinition.builder("memory_set",
+                "保存一条跨会话用户记忆（偏好/上下文）。当用户明确表达个人偏好、身份、常用设定时使用。"
+                + "必须传 key（记忆键）+ value（记忆内容），例如 memory_set(key=\"user.preference\", value=\"喜欢简洁回答\")。"
+                + "注意：不要用 content 或 message 字段代替 key/value",
                 args -> {
                     String key = args.getString("key");
                     String value = args.getString("value");
                     if (username == null || username.isEmpty()) {
                         return ToolResult.error("当前用户未登录，无法保存记忆");
                     }
+                    // 容错（T8.3.1）：模型偶发用 content 传内容而缺 key/value → 自动映射 user.preference，
+                    // 避免一次有效记忆因参数命名偏差而保存失败
                     if (key == null || key.trim().isEmpty()) {
-                        return ToolResult.error("key 不能为空");
+                        String content = args.getString("content");
+                        if (content != null && !content.trim().isEmpty()
+                                && (value == null || value.trim().isEmpty())) {
+                            value = content.trim();
+                        }
+                        if (value != null && !value.trim().isEmpty()) {
+                            key = "user.preference";
+                        }
+                    }
+                    if (key == null || key.trim().isEmpty()) {
+                        return ToolResult.error("key 不能为空（请传 key + value，如 key=\"user.preference\", value=\"...\"）");
                     }
                     if (value == null || value.trim().isEmpty()) {
-                        return ToolResult.error("value 不能为空");
+                        return ToolResult.error("value 不能为空（请传 key + value，如 key=\"user.preference\", value=\"...\"）");
                     }
                     boolean ok = store.set(username, key.trim(), value.trim());
-                    return ok ? ToolResult.ok("已保存记忆 " + key.trim())
+                    return ok ? ToolResult.ok("已保存记忆 " + key.trim() + " = " + value.trim())
                               : ToolResult.error("保存记忆失败（存储不可用）");
                 })
                 .parameters(schema)
