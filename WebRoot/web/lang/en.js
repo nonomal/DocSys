@@ -72,7 +72,6 @@ function lang(str)
 		"长期" : "LongTerm",
 		"已过期" : "Expired",
 		"证书已过期，请购买商业版证书！" : "License was expired, Please purchase business license !",
-		"免费版禁止修改主页，请购买商业版证书！" : "Main page was changed, Please purchase business license !",
 		"证书已失效，请重新购买商业版证书！" : "License is invalid, Please purchase business license !",
 		"用户数量已达到上限，请购买商业版证书！" : "The number of users has reached the maximum limit, Please purchase business license !",
 		"查询失败" : "Query Failed",
