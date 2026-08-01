@@ -106,6 +106,10 @@ public class MainAgent {
     @Autowired(required = false)
     private com.DocSystem.agent.memory.UserMemoryService userMemoryService;
 
+    /** T8.5 Step 审计（工具链每步落库）；未装配时跳过审计 */
+    @Autowired(required = false)
+    private com.DocSystem.agent.audit.StepAuditService stepAuditService;
+
     /** T8.4 web_search 配置：搜索端点（空 → 默认 DuckDuckGo HTML） */
     @org.springframework.beans.factory.annotation.Value("${agent.web-search.endpoint:}")
     private String webSearchEndpoint;
@@ -629,12 +633,27 @@ public class MainAgent {
             }
         });
         boolean isAdmin = extractIsAdmin(sessionInfo);
+        com.DocSystem.agent.orchestrator.ToolUseLoop loop;
         if (streaming) {
-            return com.DocSystem.agent.orchestrator.ToolUseLoop.forLlmServiceStreaming(
+            loop = com.DocSystem.agent.orchestrator.ToolUseLoop.forLlmServiceStreaming(
+                    llmService, registry, resolvedLlm, isAdmin);
+        } else {
+            loop = com.DocSystem.agent.orchestrator.ToolUseLoop.forLlmService(
                     llmService, registry, resolvedLlm, isAdmin);
         }
-        return com.DocSystem.agent.orchestrator.ToolUseLoop.forLlmService(
-                llmService, registry, resolvedLlm, isAdmin);
+        // T8.5：工具链每步审计（每轮/每工具：轮次/工具/参数摘要/结果摘要/耗时）→ agent_step_audits
+        if (stepAuditService != null) {
+            final String stepRequestId = org.slf4j.MDC.get("requestId") != null
+                    ? org.slf4j.MDC.get("requestId") : toolTraceId;
+            final String stepSessionId = toolSessionId;
+            loop.setStepAuditSink((turn, call, result, durationMs) -> {
+                String argsJson = call.arguments != null ? call.arguments.toJSONString() : "{}";
+                String summary = result.success ? result.summary : result.error;
+                stepAuditService.record(stepRequestId, stepSessionId, turn, call.name,
+                        argsJson, summary, result.success, durationMs);
+            });
+        }
+        return loop;
     }
 
     /**

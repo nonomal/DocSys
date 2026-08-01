@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.DocSystem.agent.repository.StepAuditRepository">
+
+    <resultMap id="StepAuditEntityResultMap" type="com.DocSystem.agent.audit.StepAuditEntity">
+        <id property="id" column="id"/>
+        <result property="requestId" column="request_id"/>
+        <result property="sessionId" column="session_id"/>
+        <result property="turn" column="turn"/>
+        <result property="tool" column="tool"/>
+        <result property="argsSummary" column="args_summary"/>
+        <result property="resultSummary" column="result_summary"/>
+        <result property="success" column="success"/>
+        <result property="durationMs" column="duration_ms"/>
+        <result property="createdAt" column="created_at"/>
+    </resultMap>
+
+    <insert id="insert" parameterType="com.DocSystem.agent.audit.StepAuditEntity" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO agent_step_audits (request_id, session_id, turn, tool, args_summary, result_summary, success, duration_ms, created_at)
+        VALUES (#{requestId}, #{sessionId}, #{turn}, #{tool}, #{argsSummary}, #{resultSummary}, #{success}, #{durationMs}, #{createdAt})
+    </insert>
+
+    <select id="selectRecent" resultMap="StepAuditEntityResultMap">
+        SELECT * FROM agent_step_audits ORDER BY id DESC LIMIT #{limit}
+    </select>
+
+    <select id="selectByRequestId" resultMap="StepAuditEntityResultMap">
+        SELECT * FROM agent_step_audits WHERE request_id = #{requestId} ORDER BY id ASC
+    </select>
+
+    <select id="selectBySessionId" resultMap="StepAuditEntityResultMap">
+        SELECT * FROM agent_step_audits WHERE session_id = #{sessionId} ORDER BY id ASC
+    </select>
+
+</mapper>

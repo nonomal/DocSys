@@ -343,7 +343,13 @@
     - [ ] T8.5 Step 审计（工具链每步）
       - 内容：ToolUseLoop 每轮/每工具调用产出结构化审计（turn/tool/args 摘要/result 摘要/耗时），对接 AuditLogService 或独立表。
       - 完成判据：一次工具链请求的每步审计可查询；护栏断言。
-      - 当前状态：未开始。★ [UNVALIDATED] 无端到端验证。
+      - 完成记录（2026-08-01 代码完成，待部署验证）：
+        1. **独立表 `agent_step_audits`**（request_id/session_id/turn/tool/args_summary/result_summary/success/duration_ms/created_at）——DatabaseInitializer 已加 MariaDB + SQLite 两套（不污染 audit_logs 的确认流语义）。
+        2. **新增**：`audit/StepAuditSink`（回调接口）、`audit/StepAuditEntity`、`audit/StepAuditService`（@Service，record 落库，参数/结果摘要截断 500，失败只记日志不抛）、`repository/StepAuditRepository`（MyBatis）、`src/mapper/StepAuditRepositoryMapper.xml`。
+        3. **ToolUseLoop**：`setStepAuditSink(...)` 注入；每步工具执行计时（durationMs）+ 回调 onStep(turn, call, result, duration)；防死循环 hint 拦截也计 failed step。纯 Java 无 Spring 依赖。
+        4. **MainAgent**：注入 StepAuditService（@Autowired(required=false)），buildToolLoop 构造 sink 闭包（requestId=MDC requestId/traceId，sessionId=context.sessionId）set 到 loop。
+        5. **护栏**：`TestStepAudit` **22/22**（loop 回调 turn/tool/success/duration、hint 拦截记 failed、service record 字段、截断、失败静默）；全景 = 29+32+36+26+52+9+26+30+22 = **262 全绿**。编译通过。
+      - 当前状态：代码完成（2026-08-01），⚠️ **待用户手动部署验证**（部署约束：不自动部署）。★ [UNVALIDATED] 无端到端验证。
     - [ ] T8.6 Admin 配置 system prompt
       - 内容：管理员可在系统配置中覆盖 ToolPromptBuilder 生成的 system prompt（或附加段落），持久化到配置表。
       - 完成判据：配置生效于后续请求；前端/接口可编辑。

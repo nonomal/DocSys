@@ -138,6 +138,14 @@ public class ToolUseLoop {
         this.isAdmin = isAdmin;
     }
 
+    /** T8.5 每步工具审计回调（可为 null → 不审计） */
+    private com.DocSystem.agent.audit.StepAuditSink stepAuditSink;
+
+    /** T8.5 注入 Step 审计回调（工具链每步落库/观测） */
+    public void setStepAuditSink(com.DocSystem.agent.audit.StepAuditSink sink) {
+        this.stepAuditSink = sink;
+    }
+
     /** 仅流式通道（测试/纯流式场景用），非流式通道为 null */
     public ToolUseLoop(StreamingLlmCaller streamingLlmCaller, ToolRegistry toolRegistry, boolean isAdmin) {
         this(null, streamingLlmCaller, toolRegistry, isAdmin);
@@ -282,6 +290,10 @@ public class ToolUseLoop {
                             sink.onToolCall(call);
                             sink.onToolResult(call, hintError);
                         }
+                        // T8.5：被防死循环拦截的调用也计入 step 审计（success=false）
+                        if (stepAuditSink != null) {
+                            stepAuditSink.onStep(turns, call, hintError, 0L);
+                        }
                         consecutiveIdentical = 0;
                         lastCallKey = null;
                         continue;
@@ -291,7 +303,13 @@ public class ToolUseLoop {
                     if (sink != null) {
                         sink.onToolCall(call);
                     }
+                    // T8.5：每步工具执行计时 + 审计
+                    long stepStart = System.currentTimeMillis();
                     ToolResult result = toolRegistry.execute(call.name, call.arguments, isAdmin);
+                    long stepDuration = System.currentTimeMillis() - stepStart;
+                    if (stepAuditSink != null) {
+                        stepAuditSink.onStep(turns, call, result, stepDuration);
+                    }
                     if (sink != null) {
                         sink.onToolResult(call, result);
                     }
