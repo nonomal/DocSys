@@ -291,11 +291,65 @@ function showContentPage(curPath) {
             orderSearchWord = "";
             showOrderList();
             break;
+        case "prompt":
+            title = _Lang("提示词管理");
+            $("#nav li[data-eb-params=prompt]>a").addClass("open");
+            showPromptConfig();
+            break;
     }
     
     $Func.render($("#pagehead"),"pagehead" + langExt,{
         title : title,
         subtitle : title
+    });
+}
+
+//提示词管理（T8.6）
+function showPromptConfig(){
+	$.ajax({
+        url : "/DocSystem/agent/config/system-prompt",
+        type : "get",
+        dataType : "json",
+        success : function (ret) {
+            console.log("showPromptConfig() ret", ret);
+        	if(ret.success)
+            {
+            	$Func.render($("#container"),"promptConfig" + langExt,{"value":ret.data});
+            }
+            else
+            {
+            	showErrorMessage(_Lang("读取提示词配置失败", " : ", ret.message || ""));
+            }
+        },
+        error : function () {
+        	showErrorMessage(_Lang("读取提示词配置失败", " : ", "服务器异常"));
+        }
+    });
+}
+
+function savePromptConfig(){
+	var suffix = $("#promptSuffix").val() || "";
+	var override = $("#promptOverride").val() || "";
+	$.ajax({
+        url : "/DocSystem/agent/config/system-prompt",
+        type : "post",
+        contentType : "application/json",
+        data : JSON.stringify({override: override, suffix: suffix}),
+        dataType : "json",
+        success : function (ret) {
+            console.log("savePromptConfig() ret", ret);
+        	if(ret.success)
+            {
+            	showErrorMessage(_Lang("提示词配置已保存，将于后续请求生效"));
+            }
+            else
+            {
+            	showErrorMessage(_Lang("保存提示词配置失败", " : ", ret.message || ""));
+            }
+        },
+        error : function () {
+        	showErrorMessage(_Lang("保存提示词配置失败", " : ", "服务器异常"));
+        }
     });
 }
 

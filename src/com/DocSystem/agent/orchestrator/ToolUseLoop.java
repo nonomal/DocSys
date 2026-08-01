@@ -146,6 +146,23 @@ public class ToolUseLoop {
         this.stepAuditSink = sink;
     }
 
+    /**
+     * System prompt 装饰器（T8.6）—— 对默认工具链 system prompt 做后处理。
+     * MainAgent 注入闭包：读取管理员配置的 override/suffix 并应用；null → 用默认。
+     */
+    @FunctionalInterface
+    public interface SystemPromptDecorator {
+        String apply(String basePrompt);
+    }
+
+    /** T8.6 管理员提示词配置装饰器（可为 null → 默认 prompt 不变） */
+    private SystemPromptDecorator systemPromptDecorator;
+
+    /** T8.6 注入提示词装饰器（管理员配置 override/suffix 生效入口） */
+    public void setSystemPromptDecorator(SystemPromptDecorator decorator) {
+        this.systemPromptDecorator = decorator;
+    }
+
     /** 仅流式通道（测试/纯流式场景用），非流式通道为 null */
     public ToolUseLoop(StreamingLlmCaller streamingLlmCaller, ToolRegistry toolRegistry, boolean isAdmin) {
         this(null, streamingLlmCaller, toolRegistry, isAdmin);
@@ -201,7 +218,12 @@ public class ToolUseLoop {
     private ToolUseResult runInternal(String userQuery, List<Map<String, String>> priorHistory,
                                       StreamSink sink) {
         List<Map<String, String>> messages = new ArrayList<>();
-        messages.add(systemMsg(ToolPromptBuilder.buildSystemPrompt(toolRegistry.listForUser(isAdmin))));
+        // T8.6：默认 system prompt 经管理员配置装饰器（override 替换 / suffix 追加）
+        String systemPrompt = ToolPromptBuilder.buildSystemPrompt(toolRegistry.listForUser(isAdmin));
+        if (systemPromptDecorator != null) {
+            systemPrompt = systemPromptDecorator.apply(systemPrompt);
+        }
+        messages.add(systemMsg(systemPrompt));
         // 历史上下文注入（续接会话时 LLM 记得前文）
         if (priorHistory != null) {
             for (Map<String, String> h : priorHistory) {

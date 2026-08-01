@@ -18,6 +18,9 @@
 		<li data-eb-event="content.refresh" data-eb-params="userUsageStats">
 	    	<a href="#"><i class="icon-bar-chart"></i>Usage Statistics</a>
 	    </li>
+	    <li data-eb-event="content.refresh" data-eb-params="prompt">
+	    	<a href="#"><i class="icon-bar-chart"></i>Prompt Config</a>
+	    </li>
 	    {{/if}}
 	    {{/if}}
 	
@@ -71,11 +74,14 @@
 <li data-eb-event="content.refresh" data-eb-params="userUsageStats">
 	    	<a href="#"><i class="icon-bar-chart"></i>Usage Statistics</a>
 	    </li>
-    {{/if}}
-    {{/if}}
+	    <li data-eb-event="content.refresh" data-eb-params="prompt">
+	    	<a href="#"><i class="icon-bar-chart"></i>Prompt Config</a>
+	    </li>
+	    {{/if}}
+	    {{/if}}
 
-    {{if type == 2}}
-    <li data-eb-event="content.refresh" data-eb-params="system" class="has_sublist">
+	    {{if type == 2}}
+	    <li data-eb-event="content.refresh" data-eb-params="system" class="has_sublist">
         <a href="#" class=''>
             <i class="icon-list-alt"></i>System<span class="pull-right"><i class="icon-chevron-right"></i></span>
         </a> 

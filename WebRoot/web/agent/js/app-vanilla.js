@@ -298,7 +298,8 @@
 
         // Per D-13: Use SSE streaming for real-time confirm flow support
         const sessionParam = state.sessionId ? '&sessionId=' + encodeURIComponent(state.sessionId) : '';
-        const url = '/agent/stream?command=' + encodeURIComponent(message) + sessionParam;
+        // 修复：必须带 /DocSystem 前缀（应用上下文），否则请求打到主机根 → 404
+        const url = API_BASE + '/stream?command=' + encodeURIComponent(message) + sessionParam;
 
         try {
             const response = await fetch(url);

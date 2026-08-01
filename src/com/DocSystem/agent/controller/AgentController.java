@@ -105,6 +105,10 @@ public class AgentController {
     @Autowired(required = false)
     private SkillMetadataService skillMetadataService;
 
+    /** T8.6 管理员提示词配置服务 */
+    @Autowired(required = false)
+    private com.DocSystem.agent.config.AgentConfigService agentConfigService;
+
     // Streaming executor — exposed to DocSysAgentApplication for graceful shutdown
     private final ExecutorService streamingExecutor = Executors.newCachedThreadPool();
 
@@ -605,6 +609,96 @@ public class AgentController {
         }
         conversationHistoryService.deleteSession(sessionId);
         return AgentResponse.ok("会话已删除");
+    }
+
+    // ==================== LLM 模型列表 / 用户自定义模型 CRUD ====================
+
+    // ==================== T8.6 管理员提示词配置 ====================
+
+    /** 提示词配置请求体（override/suffix 均可空 → 清空对应项） */
+    public static class SystemPromptConfigRequest {
+        private String override;
+        private String suffix;
+        public String getOverride() { return override; }
+        public void setOverride(String override) { this.override = override; }
+        public String getSuffix() { return suffix; }
+        public void setSuffix(String suffix) { this.suffix = suffix; }
+    }
+
+    /** 当前登录用户是否系统管理员（DocSystem 惯例：type >= 1 为管理员） */
+    private boolean isSystemAdmin(User user) {
+        return user != null && user.getType() != null && user.getType() >= 1;
+    }
+
+    /**
+     * 读取提示词配置（管理员）：override（整体覆盖）+ suffix（附加）+ 默认 prompt 预览。
+     */
+    @GetMapping("/config/system-prompt")
+    public AgentResponse getSystemPromptConfig(HttpServletRequest servletRequest) {
+        User user = currentUser(servletRequest);
+        if (user == null) {
+            return AgentResponse.error("NOT_LOGGED_IN");
+        }
+        if (!isSystemAdmin(user)) {
+            return AgentResponse.error("仅管理员可查看提示词配置");
+        }
+        if (agentConfigService == null) {
+            return AgentResponse.error("提示词配置服务不可用");
+        }
+        try {
+            java.util.Map<String, Object> data = new java.util.HashMap<>();
+            String override = agentConfigService.getGlobal(
+                    com.DocSystem.agent.config.AgentConfigService.KEY_SYSTEM_PROMPT_OVERRIDE);
+            String suffix = agentConfigService.getGlobal(
+                    com.DocSystem.agent.config.AgentConfigService.KEY_SYSTEM_PROMPT_SUFFIX);
+            data.put("override", override != null ? override : "");
+            data.put("suffix", suffix != null ? suffix : "");
+            // 默认 prompt 预览（当前管理员可见工具）
+            try {
+                DocSysClient client = getSessionClient(servletRequest.getSession().getId());
+                com.DocSystem.agent.tool.ToolRegistry reg =
+                        com.DocSystem.agent.tool.DocSysToolFactory.createFullRegistry(client);
+                data.put("defaultPrompt", com.DocSystem.agent.tool.ToolPromptBuilder
+                        .buildSystemPrompt(reg.listForUser(true)));
+            } catch (Exception e) {
+                data.put("defaultPrompt", "（预览生成失败: " + e.getMessage() + "）");
+            }
+            return AgentResponse.ok("Success").withData(data);
+        } catch (Exception e) {
+            log.error("getSystemPromptConfig failed", e);
+            return AgentResponse.error("读取提示词配置失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 保存提示词配置（管理员）：override（整体覆盖）+ suffix（附加）。
+     * 二者均可空字符串 → 清空对应项（恢复默认 prompt）。
+     */
+    @PostMapping("/config/system-prompt")
+    public AgentResponse saveSystemPromptConfig(@RequestBody(required = false) SystemPromptConfigRequest req,
+                                                HttpServletRequest servletRequest) {
+        User user = currentUser(servletRequest);
+        if (user == null) {
+            return AgentResponse.error("NOT_LOGGED_IN");
+        }
+        if (!isSystemAdmin(user)) {
+            return AgentResponse.error("仅管理员可配置提示词");
+        }
+        if (agentConfigService == null) {
+            return AgentResponse.error("提示词配置服务不可用");
+        }
+        try {
+            String override = (req != null && req.getOverride() != null) ? req.getOverride() : "";
+            String suffix = (req != null && req.getSuffix() != null) ? req.getSuffix() : "";
+            agentConfigService.setGlobal(
+                    com.DocSystem.agent.config.AgentConfigService.KEY_SYSTEM_PROMPT_OVERRIDE, override);
+            agentConfigService.setGlobal(
+                    com.DocSystem.agent.config.AgentConfigService.KEY_SYSTEM_PROMPT_SUFFIX, suffix);
+            return AgentResponse.ok("提示词配置已保存");
+        } catch (Exception e) {
+            log.error("saveSystemPromptConfig failed", e);
+            return AgentResponse.error("保存提示词配置失败: " + e.getMessage());
+        }
     }
 
     // ==================== LLM 模型列表 / 用户自定义模型 CRUD ====================

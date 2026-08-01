@@ -34,6 +34,7 @@ public class DatabaseInitializer {
         "agent_sessions",
         "agent_session_messages",
         "agent_user_memory",
+        "agent_config",
         "agent_tasks",
         "audit_logs",
         "skill_metadata",
@@ -88,6 +89,17 @@ public class DatabaseInitializer {
             + "UNIQUE KEY uk_username_key (username, mem_key),"
             + "INDEX idx_username (username)"
             + ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Agent user memory (T8.3)'",
+
+        // agent_config
+        "CREATE TABLE IF NOT EXISTS agent_config ("
+            + "id BIGINT PRIMARY KEY AUTO_INCREMENT,"
+            + "scope VARCHAR(32) NOT NULL DEFAULT 'global' COMMENT '作用域: global/仓库ID(预留)',"
+            + "config_key VARCHAR(64) NOT NULL COMMENT '配置键',"
+            + "config_value LONGTEXT COMMENT '配置值',"
+            + "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,"
+            + "UNIQUE KEY uk_scope_key (scope, config_key),"
+            + "INDEX idx_scope (scope)"
+            + ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Agent config (T8.6 system prompt etc.)'",
 
         // agent_tasks
         "CREATE TABLE IF NOT EXISTS agent_tasks ("
@@ -350,6 +362,16 @@ public class DatabaseInitializer {
             + "mem_value TEXT,"
             + "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,"
             + "UNIQUE (username, mem_key)"
+            + ")",
+
+        // agent_config
+        "CREATE TABLE IF NOT EXISTS agent_config ("
+            + "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+            + "scope VARCHAR(32) NOT NULL DEFAULT 'global',"
+            + "config_key VARCHAR(64) NOT NULL,"
+            + "config_value TEXT,"
+            + "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,"
+            + "UNIQUE (scope, config_key)"
             + ")",
 
         // agent_tasks

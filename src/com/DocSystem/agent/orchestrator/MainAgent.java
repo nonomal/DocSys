@@ -106,6 +106,10 @@ public class MainAgent {
     @Autowired(required = false)
     private com.DocSystem.agent.memory.UserMemoryService userMemoryService;
 
+    /** T8.6 管理员提示词配置（system_prompt_override/suffix）；未装配时用默认 prompt */
+    @Autowired(required = false)
+    private com.DocSystem.agent.config.AgentConfigService agentConfigService;
+
     /** T8.4 web_search 配置：搜索端点（空 → 默认 DuckDuckGo HTML） */
     @org.springframework.beans.factory.annotation.Value("${agent.web-search.endpoint:}")
     private String webSearchEndpoint;
@@ -659,6 +663,22 @@ public class MainAgent {
                         + " success=" + result.success
                         + " durationMs=" + durationMs
                         + " result=" + summary);
+            });
+        }
+        // T8.6：管理员 system prompt 配置生效（override 整体替换 / suffix 附加；每次请求读取 → 实时生效）
+        if (agentConfigService != null) {
+            loop.setSystemPromptDecorator(basePrompt -> {
+                String override = agentConfigService.getGlobal(
+                        com.DocSystem.agent.config.AgentConfigService.KEY_SYSTEM_PROMPT_OVERRIDE);
+                if (override != null && !override.trim().isEmpty()) {
+                    return override;
+                }
+                String suffix = agentConfigService.getGlobal(
+                        com.DocSystem.agent.config.AgentConfigService.KEY_SYSTEM_PROMPT_SUFFIX);
+                if (suffix != null && !suffix.trim().isEmpty()) {
+                    return basePrompt + "\n\n" + suffix.trim();
+                }
+                return basePrompt;
             });
         }
         return loop;
