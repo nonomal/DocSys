@@ -1017,7 +1017,6 @@
         .message[role="system"] .message-body {
             white-space: pre-wrap;
         }
-        }
         
         .dialog-footer {
             padding: 12px 20px;
@@ -3184,9 +3183,8 @@
     }
 
     function showLoginScreen() {
-        // Merged into DocSystem: the agent no longer has its own login form.
-        // Redirect to DocSystem's shared login page instead.
-        redirectToDocSysLogin();
+        // 直接访问本页未登录：显示本地登录界面（不跳转 DocSystem 登录页）
+        switchView('login');
     }
 
     // ==================== Actions ====================
@@ -4385,9 +4383,60 @@
         } catch (e) {
             console.warn('getLoginUser check failed (ignored):', e);
         }
-        // 未登录或检查失败：仍进入 app（不跳转），后端会在操作时返回未登录提示。
-        enterApp(null);
+        // 未登录或检查失败：保留本地登录界面（用户可能直接访问本页，需先登录）
+        switchView('login');
     }
+
+    // 本地登录表单提交：调用 DocSystem 登录接口（与主站共享会话），密码需 Base64
+    document.getElementById('loginForm').addEventListener('submit', async function(e) {
+        e.preventDefault();
+        var btn = document.getElementById('loginBtn');
+        var username = document.getElementById('username').value.trim();
+        var password = document.getElementById('password').value;
+        if (!username || !password) {
+            showMessage('请输入用户名和密码', 'error');
+            return;
+        }
+        btn.disabled = true;
+        btn.textContent = '登录中...';
+        try {
+            var pwdB64 = btoa(unescape(encodeURIComponent(password)));
+            var body = 'userName=' + encodeURIComponent(username) +
+                       '&pwd=' + encodeURIComponent(pwdB64) +
+                       '&rememberMe=1';
+            var res = await fetch('/DocSystem/User/login.do', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: body,
+                credentials: 'same-origin'
+            });
+            var ret = await res.json();
+            if (ret && ret.status === 'ok') {
+                showMessage('登录成功', 'success');
+                // 重新获取当前用户进入主界面
+                var userRes = await fetch('/DocSystem/User/getLoginUser.do', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: '',
+                    credentials: 'same-origin'
+                });
+                var userRet = await userRes.json();
+                if (userRet && userRet.status === 'ok' && userRet.data) {
+                    enterApp(userRet.data);
+                } else {
+                    enterApp(null);
+                }
+            } else {
+                showMessage((ret && ret.message) ? ret.message : '登录失败', 'error');
+                btn.disabled = false;
+                btn.textContent = 'OK';
+            }
+        } catch (err) {
+            showMessage('登录请求失败: ' + err.message, 'error');
+            btn.disabled = false;
+            btn.textContent = 'OK';
+        }
+    });
 
     checkDocSysLogin();
     </script>
