@@ -34,7 +34,6 @@ public class DatabaseInitializer {
         "agent_sessions",
         "agent_session_messages",
         "agent_user_memory",
-        "agent_step_audits",
         "agent_tasks",
         "audit_logs",
         "skill_metadata",
@@ -89,24 +88,6 @@ public class DatabaseInitializer {
             + "UNIQUE KEY uk_username_key (username, mem_key),"
             + "INDEX idx_username (username)"
             + ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Agent user memory (T8.3)'",
-
-        // agent_step_audits
-        "CREATE TABLE IF NOT EXISTS agent_step_audits ("
-            + "id BIGINT PRIMARY KEY AUTO_INCREMENT,"
-            + "request_id VARCHAR(64) COMMENT '请求ID(traceId)',"
-            + "session_id VARCHAR(64) COMMENT 'Agent会话ID',"
-            + "turn INT COMMENT '工具链轮次',"
-            + "tool VARCHAR(64) NOT NULL COMMENT '工具名',"
-            + "args_summary TEXT COMMENT '参数摘要(JSON)',"
-            + "result_summary TEXT COMMENT '结果摘要',"
-            + "success BOOLEAN DEFAULT TRUE COMMENT '是否成功',"
-            + "duration_ms BIGINT COMMENT '工具耗时(毫秒)',"
-            + "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,"
-            + "INDEX idx_request (request_id),"
-            + "INDEX idx_session (session_id),"
-            + "INDEX idx_tool (tool),"
-            + "INDEX idx_created (created_at)"
-            + ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Agent tool step audit (T8.5)'",
 
         // agent_tasks
         "CREATE TABLE IF NOT EXISTS agent_tasks ("
@@ -369,20 +350,6 @@ public class DatabaseInitializer {
             + "mem_value TEXT,"
             + "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,"
             + "UNIQUE (username, mem_key)"
-            + ")",
-
-        // agent_step_audits
-        "CREATE TABLE IF NOT EXISTS agent_step_audits ("
-            + "id INTEGER PRIMARY KEY AUTOINCREMENT,"
-            + "request_id VARCHAR(64),"
-            + "session_id VARCHAR(64),"
-            + "turn INT,"
-            + "tool VARCHAR(64) NOT NULL,"
-            + "args_summary TEXT,"
-            + "result_summary TEXT,"
-            + "success BOOLEAN DEFAULT 1,"
-            + "duration_ms BIGINT,"
-            + "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
             + ")",
 
         // agent_tasks

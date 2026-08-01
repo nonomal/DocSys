@@ -873,7 +873,12 @@ public class AgentController {
 
         SseEmitter emitter = new SseEmitter(sseTimeoutSeconds * 1000L); // configurable timeout
 
+        // T8.5.2：流式请求 requestId（供 step 审计/日志串联；后台线程是独立线程，MDC 不继承，
+        // 故在后台线程内 put/remove，让 [ToolUseLoop][STEP] 日志带 requestId 关联一次请求）
+        final String streamRequestId = java.util.UUID.randomUUID().toString();
+
         streamingExecutor.execute(() -> {
+            MDC.put("requestId", streamRequestId);
             log.info("SSE stream started for command: {}", command);
             try {
                 emitter.send(SseEmitter.event()
@@ -1100,6 +1105,8 @@ public class AgentController {
                         .data("{\"type\":\"error\",\"message\":" + escapeJson(e.getMessage()) + "}", MediaType.TEXT_PLAIN));
                 } catch (Exception ignored) {}
                 emitter.completeWithError(e);
+            } finally {
+                MDC.remove("requestId");
             }
         });
 

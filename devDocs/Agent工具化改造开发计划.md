@@ -343,13 +343,14 @@
     - [ ] T8.5 Step 审计（工具链每步）
       - 内容：ToolUseLoop 每轮/每工具调用产出结构化审计（turn/tool/args 摘要/result 摘要/耗时），对接 AuditLogService 或独立表。
       - 完成判据：一次工具链请求的每步审计可查询；护栏断言。
-      - 完成记录（2026-08-01 代码完成，待部署验证）：
-        1. **独立表 `agent_step_audits`**（request_id/session_id/turn/tool/args_summary/result_summary/success/duration_ms/created_at）——DatabaseInitializer 已加 MariaDB + SQLite 两套（不污染 audit_logs 的确认流语义）。
-        2. **新增**：`audit/StepAuditSink`（回调接口）、`audit/StepAuditEntity`、`audit/StepAuditService`（@Service，record 落库，参数/结果摘要截断 500，失败只记日志不抛）、`repository/StepAuditRepository`（MyBatis）、`src/mapper/StepAuditRepositoryMapper.xml`。
-        3. **ToolUseLoop**：`setStepAuditSink(...)` 注入；每步工具执行计时（durationMs）+ 回调 onStep(turn, call, result, duration)；防死循环 hint 拦截也计 failed step。纯 Java 无 Spring 依赖。
-        4. **MainAgent**：注入 StepAuditService（@Autowired(required=false)），buildToolLoop 构造 sink 闭包（requestId=MDC requestId/traceId，sessionId=context.sessionId）set 到 loop。
-        5. **护栏**：`TestStepAudit` **22/22**（loop 回调 turn/tool/success/duration、hint 拦截记 failed、service record 字段、截断、失败静默）；全景 = 29+32+36+26+52+9+26+30+22 = **262 全绿**。编译通过。
-      - 当前状态：代码完成（2026-08-01），⚠️ **待用户手动部署验证**（部署约束：不自动部署）。★ [UNVALIDATED] 无端到端验证。
+      - 完成记录（2026-08-01 代码完成；T8.5.1 改日志方案，待部署验证）：
+        1. **方案决策（T8.5.1，用户）**：step 审计**只用于排查问题 → 不落数据库**，改用 **DocSys 自带 `Log` 接口**打结构化日志（写 docsys.log，可下载 grep，零 DB 依赖）。已删除初版的 `agent_step_audits` 表 + StepAuditEntity/Service/Repository/Mapper 全套（未部署，零回滚）。
+        2. **保留抽象**：`audit/StepAuditSink`（回调接口）+ `ToolUseLoop.setStepAuditSink(...)`——每步工具执行计时（durationMs）+ 回调 onStep(turn, call, result, duration)；防死循环 hint 拦截也计 failed step。纯 Java 无 Spring。
+        3. **MainAgent**：buildToolLoop 构造 sink 闭包 → `Log.info("[STEP] requestId=... sessionId=... turn=... tool=... args=... success=... durationMs=... result=...")`（前缀 [STEP] 便于 grep；requestId=MDC requestId/traceId，sessionId=context.sessionId；结果摘要截断 300）。
+        4. **护栏**：`TestStepAudit` **9/9**（loop 回调 turn/tool/success/duration、hint 拦截记 failed、null sink 安全）；全景 = 29+32+36+26+52+9+26+30+9 = **249 全绿**。编译通过。
+        5. **端到端验证通过（2026-08-01）**：真实工具链请求 → docsys.log 的 `[ToolUseLoop][STEP]` 完整记录每步（turn/tool/args/success/durationMs/result）；同一次请求多步共享同一 requestId 可精确分组。
+        6. **T8.5.2 修复**：流式 `/stream` 的 step 日志 requestId 曾为 null（异步线程 MDC 不继承）→ 在 `streamingExecutor` lambda 内 `MDC.put/remove("requestId", UUID)`；日志字段顺序按用户要求 sessionId 在最前（先按会话过滤，再按 requestId 区分同会话不同请求）。
+      - 当前状态：**已完成（2026-08-01 端到端验证通过）**。
     - [ ] T8.6 Admin 配置 system prompt
       - 内容：管理员可在系统配置中覆盖 ToolPromptBuilder 生成的 system prompt（或附加段落），持久化到配置表。
       - 完成判据：配置生效于后续请求；前端/接口可编辑。

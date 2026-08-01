@@ -106,10 +106,6 @@ public class MainAgent {
     @Autowired(required = false)
     private com.DocSystem.agent.memory.UserMemoryService userMemoryService;
 
-    /** T8.5 Step 审计（工具链每步落库）；未装配时跳过审计 */
-    @Autowired(required = false)
-    private com.DocSystem.agent.audit.StepAuditService stepAuditService;
-
     /** T8.4 web_search 配置：搜索端点（空 → 默认 DuckDuckGo HTML） */
     @org.springframework.beans.factory.annotation.Value("${agent.web-search.endpoint:}")
     private String webSearchEndpoint;
@@ -641,16 +637,28 @@ public class MainAgent {
             loop = com.DocSystem.agent.orchestrator.ToolUseLoop.forLlmService(
                     llmService, registry, resolvedLlm, isAdmin);
         }
-        // T8.5：工具链每步审计（每轮/每工具：轮次/工具/参数摘要/结果摘要/耗时）→ agent_step_audits
-        if (stepAuditService != null) {
+        // T8.5：工具链每步审计（每轮/每工具：轮次/工具/参数摘要/结果摘要/耗时）→
+        // 用 DocSys 自带 Log 接口打结构化日志（写 docsys.log，可下载 grep 排查）。
+        // 双标记 [ToolUseLoop][STEP]；sessionId 放最前（先按会话过滤出全部 request），
+        // 再按 requestId 区分同会话内的不同请求；不依赖数据库。
+        {
             final String stepRequestId = org.slf4j.MDC.get("requestId") != null
                     ? org.slf4j.MDC.get("requestId") : toolTraceId;
             final String stepSessionId = toolSessionId;
             loop.setStepAuditSink((turn, call, result, durationMs) -> {
                 String argsJson = call.arguments != null ? call.arguments.toJSONString() : "{}";
                 String summary = result.success ? result.summary : result.error;
-                stepAuditService.record(stepRequestId, stepSessionId, turn, call.name,
-                        argsJson, summary, result.success, durationMs);
+                if (summary != null && summary.length() > 300) {
+                    summary = summary.substring(0, 300) + "...";
+                }
+                com.DocSystem.common.Log.info("[ToolUseLoop][STEP] sessionId=" + stepSessionId
+                        + " requestId=" + stepRequestId
+                        + " turn=" + turn
+                        + " tool=" + call.name
+                        + " args=" + argsJson
+                        + " success=" + result.success
+                        + " durationMs=" + durationMs
+                        + " result=" + summary);
             });
         }
         return loop;
